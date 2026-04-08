@@ -2,11 +2,30 @@ from llama_index.core.workflow import Event
 
 from src.workflow.models import (
     ClassificationResult,
+    HistoricalCandidate,
     PreprocessedIncident,
     ToolResult,
     TriageResult,
 )
 
+
+# ── Candidate retrieval pipeline ──────────────────────────────────────────────
+
+class CandidatesRetrievedEvent(Event):
+    """Emitted after Top-K vector retrieval from Qdrant."""
+
+    preprocessed: PreprocessedIncident
+    candidates: list[HistoricalCandidate]
+
+
+class RankedCandidatesEvent(Event):
+    """Emitted after cross-encoder / score-based reranking to Top-N."""
+
+    preprocessed: PreprocessedIncident
+    candidates: list[HistoricalCandidate]
+
+
+# ── Downstream pipeline ───────────────────────────────────────────────────────
 
 class ContextEnrichedEvent(Event):
     preprocessed: PreprocessedIncident
