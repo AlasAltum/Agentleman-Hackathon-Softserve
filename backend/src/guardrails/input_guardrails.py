@@ -1,7 +1,8 @@
-from abc import ABC, abstractmethod
 from typing import Protocol
 
+from src.guardrails.base import BaseGuardrail
 from src.guardrails.models import GuardrailsResult, ThreatLevel
+from src.guardrails.validators import SqlInjectionGuardrail, XssGuardrail
 from src.utils.logger import logger
 
 
@@ -12,40 +13,43 @@ class GuardrailRule(Protocol):
         ...
 
 
-class BaseGuardrail(ABC):
-    @abstractmethod
-    def validate(self, content: str) -> GuardrailsResult:
-        ...
-
-
 class PromptInjectionGuardrail(BaseGuardrail):
-    INJECTION_PATTERNS = [
+    # Clear attack intent — hard block
+    MALICIOUS_PATTERNS = [
         "ignore previous instructions",
         "disregard all",
         "system prompt",
-        "you are now",
-        "<script>",
+        "forget everything",
+    ]
+    # Ambiguous — could appear in legitimate SRE logs/templates, soft-flag only
+    SUSPICIOUS_PATTERNS = [
         "{{",
         "act as",
         "pretend you are",
-        "forget everything",
+        "you are now",
     ]
 
     def validate(self, content: str) -> GuardrailsResult:
         text_lower = content.lower()
-        blocked = []
 
-        for pattern in self.INJECTION_PATTERNS:
-            if pattern in text_lower:
-                blocked.append(pattern)
-
-        if blocked:
-            logger.warning("[guardrails] Blocked_patterns=%s", blocked)
+        malicious = [p for p in self.MALICIOUS_PATTERNS if p in text_lower]
+        if malicious:
+            logger.warning("[guardrails] Malicious injection patterns=%s", malicious)
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.MALICIOUS,
-                blocked_patterns=blocked,
-                message="Input blocked by guardrails: suspicious pattern detected.",
+                blocked_patterns=malicious,
+                message="Input blocked by guardrails: malicious injection pattern detected.",
+            )
+
+        suspicious = [p for p in self.SUSPICIOUS_PATTERNS if p in text_lower]
+        if suspicious:
+            logger.warning("[guardrails] Suspicious injection patterns=%s", suspicious)
+            return GuardrailsResult(
+                is_safe=False,
+                threat_level=ThreatLevel.SUSPICIOUS,
+                blocked_patterns=suspicious,
+                message="Input flagged as suspicious: potential injection pattern detected.",
             )
 
         return GuardrailsResult(
@@ -58,27 +62,40 @@ class PromptInjectionGuardrail(BaseGuardrail):
 
 class GuardrailsEngine:
     def __init__(self, guardrails: list[BaseGuardrail] | None = None):
-        self._guardrails = guardrails or [PromptInjectionGuardrail()]
+        if guardrails is None:
+            self._guardrails = [
+                PromptInjectionGuardrail(),
+                XssGuardrail(),
+                SqlInjectionGuardrail(),
+            ]
+        else:
+            self._guardrails = guardrails
 
     def add_guardrail(self, guardrail: BaseGuardrail) -> None:
         self._guardrails.append(guardrail)
 
     def validate(self, content: str) -> GuardrailsResult:
         all_blocked: list[str] = []
-        max_threat = ThreatLevel.SAFE
+        per_threat_levels: list[ThreatLevel] = []
 
         for guardrail in self._guardrails:
             result = guardrail.validate(content)
             all_blocked.extend(result.blocked_patterns)
-
-            if result.threat_level.value > max_threat.value:
-                max_threat = result.threat_level
+            per_threat_levels.append(result.threat_level)
 
             if not result.is_safe:
                 logger.warning(
                     "[guardrails] Guardrail=%s blocked content",
                     guardrail.__class__.__name__,
                 )
+
+        # Aggregate threat level without relying on str ordering
+        if ThreatLevel.MALICIOUS in per_threat_levels:
+            max_threat = ThreatLevel.MALICIOUS
+        elif ThreatLevel.SUSPICIOUS in per_threat_levels:
+            max_threat = ThreatLevel.SUSPICIOUS
+        else:
+            max_threat = ThreatLevel.SAFE
 
         is_safe = len(all_blocked) == 0
         return GuardrailsResult(

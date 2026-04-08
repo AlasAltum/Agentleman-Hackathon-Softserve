@@ -1,14 +1,23 @@
 import pytest
 import sys
+import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
-    """Configure test environment before any tests run."""
-    import os
+    """Configure test environment before any tests run.
+    
+    For unit tests: uses MockLLM/MockEmbedding
+    For Gemini integration tests: loads real API keys from .env
+    """
     
     # Environment
     os.environ["APP_ENV"] = "test"
@@ -24,15 +33,14 @@ def setup_test_environment():
     os.environ["POSTGRES_HOST"] = "db"
     os.environ["POSTGRES_PORT"] = "5432"
     
-    # LLM Configuration (mock for testing)
-    os.environ["LLM_PROVIDER"] = "mock"
+    # For unit tests, use MockLLM by default
+    # .env will be loaded by dotenv, so we only override if needed
+    # Integration tests that need real LLM will set these in their fixtures
     
-    # API Keys (not needed for mock provider)
-    os.environ["GOOGLE_API_KEY"] = "test-key"
-    os.environ["LLM_MODEL"] = "mock-model"
-    
-    # Embeddings Configuration (mock for testing)
-    os.environ["EMBED_PROVIDER"] = "mock"
-    os.environ["EMBED_MODEL"] = "mock-embedding"
+    # Model names (used if .env doesn't specify them)
+    if not os.getenv("LLM_MODEL"):
+        os.environ["LLM_MODEL"] = "gemini-2.5-flash"
+    if not os.getenv("EMBED_MODEL"):
+        os.environ["EMBED_MODEL"] = "gemini-embedding-2-preview"
     
     yield

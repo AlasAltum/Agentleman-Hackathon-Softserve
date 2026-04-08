@@ -25,6 +25,7 @@ class IncidentInput(BaseModel):
     reporter_email: str
     file_content: Optional[bytes] = None
     file_mime_type: Optional[str] = None
+    file_name: Optional[str] = None
 
 
 class FileMetadata(BaseModel):
@@ -36,6 +37,7 @@ class PreprocessedIncident(BaseModel):
     original: IncidentInput
     consolidated_text: str
     file_metadata: FileMetadata = FileMetadata()
+    security_flag: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 

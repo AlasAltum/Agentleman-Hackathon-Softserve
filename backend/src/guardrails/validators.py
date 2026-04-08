@@ -1,4 +1,4 @@
-from src.guardrails.input_guardrails import BaseGuardrail
+from src.guardrails.base import BaseGuardrail
 from src.guardrails.models import GuardrailsResult, ThreatLevel
 from src.utils.logger import logger
 
@@ -68,8 +68,18 @@ class SqlInjectionGuardrail(BaseGuardrail):
 class ContentTypeGuardrail(BaseGuardrail):
     def __init__(self, allowed_mime_types: list[str] | None = None):
         self._allowed_mime_types = allowed_mime_types or [
+            # Text / logs
             "text/plain",
             "text/log",
+            # Structured data
+            "application/json",
+            "text/csv",
+            "application/csv",
+            # Infra / config (usually sent as text/plain by browsers, listed for explicit uploads)
+            "text/yaml",
+            "application/yaml",
+            "application/x-yaml",
+            # Images
             "image/png",
             "image/jpeg",
             "image/gif",
