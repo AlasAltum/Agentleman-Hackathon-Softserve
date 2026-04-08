@@ -308,10 +308,8 @@ def _setup_local_embeddings(model: Optional[str]) -> None:
 
 def reset_settings() -> None:
     """Reset LlamaIndex settings to defaults."""
-    from llama_index.core.settings import _DEFAULT_CHUNK_SIZE, _DEFAULT_CHUNK_OVERLAP
-    
     Settings.llm = None
     Settings.embed_model = None
     Settings.callback_manager = None
-    Settings.chunk_size = _DEFAULT_CHUNK_SIZE
-    Settings.chunk_overlap = _DEFAULT_CHUNK_OVERLAP
+    Settings.chunk_size = 1024
+    Settings.chunk_overlap = 200
