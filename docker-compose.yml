@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: llama-index-template-db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_BDNAME}
+    command: -p ${POSTGRES_PORT}
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+
+  app:
+    build: .
+    container_name: llama-index-template-backend
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_BDNAME}"
+      APP_ENV: ${APP_ENV:-prod}
+      APP_PORT: ${APP_PORT}
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    ports:
+      - "${EXPOSED_APP_PORT}:${APP_PORT}"
