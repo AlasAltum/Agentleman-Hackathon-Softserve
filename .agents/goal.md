@@ -181,3 +181,76 @@ Before submitting, confirm:
 - 🟡  Application builds and runs with `docker compose up --build`
 
 Incomplete submissions will not be evaluated.
+
+```json
+// Example of an MLflow logged event during the triage phase
+{
+  "event_type": "ContextEnrichedEvent",
+  "incident_classification": "Historical Regression",
+  "qdrant_similarity_score": 0.89,
+  "time_delta_hours": 72,
+  "tools_dispatched": ["check_business_impact", "analyze_codebase"],
+  "latency_ms": 2104,
+  "stage": "triage"
+}
+```
+
+## Detailed End-to-End Workflow
+
+The following outlines the step-by-step life of an incident report as it travels through our agentic system:
+
+Phase 1: Ingestion and Security
+
+    User Submission: A user submits an incident via the Next.js frontend form, providing a text description and optionally attaching files.
+
+    API Reception: The payload ({ text_desc, file_attachment }) is sent via a POST request (/api/ingest) to our FastAPI orchestrator webhook.
+
+    Guardrails Evaluation: The input passes through the Input Guardrails (NeMo). If a threat is detected, it blocks the request (HTTP 400) and alerts SecOps. If safe, it proceeds.
+
+Phase 2: Dynamic Preprocessing
+
+The safe payload enters the Dynamic Preprocessor (File Router). Depending on the MIME type, it applies the specific extraction logic mentioned in Section 3 (Regex for logs, OCR for images, etc.). Finally, it consolidates the input into a clean string and file metadata. This triggers the LlamaIndex Event-Driven Workflow, and MLflow begins tracing.
+Phase 3: Retrieval and Incident Classification
+
+    Candidate Retrieval: The agent queries the Qdrant Vector DB to extract the Top-K historical incidents matching the current report.
+
+    Reranking: The Cross-Encoder Node Reranker filters and orders the results down to the Top-3 candidates.
+
+    Cluster & Time Judge: An LLM evaluates the similarity of the candidates alongside timestamp metadata to classify the incident:
+
+        Active Alert Storm (High Sim, < 24hrs): The system flags this to prevent duplicate tickets and increases the urgency of the existing open ticket.
+
+        Historical Regression (High Sim, > 24hrs): The agent retrieves the historical Root Cause Analysis (RCA) to use as a suggestion (acting as a Known Error Database).
+
+        New Incident (No Sim): The agent flags this for deep triage.
+
+Phase 4: Enriched Routing and Tool Dispatch
+
+The classified event is passed to the LLM Router/Orchestrator. The Tool Dispatcher selects expert tools based on the context:
+
+    Analyzes .tf files if infrastructure issues are suspected.
+
+    Analyzes the codebase if syntax errors are detected.
+
+    Analyzes telemetry if metrics spikes are reported.
+
+    Always executes check_business_impact() to calculate potential financial loss via SQL.
+    A Result Processor consolidates these technical findings and sends them back to the Router.
+
+Phase 5: Ticketing and Notification
+
+    Ticket Generation: The Router compiles a comprehensive technical summary (including the drafted RCA and financial impact) and interacts with the Jira API:
+
+        For Alert Storms: It updates the existing Jira ticket with a new comment.
+
+        For Regressions or New Incidents: It creates a brand-new Jira ticket.
+
+    Tech Alert: The agent immediately notifies the technical team via Slack and Email, providing the triage summary and a direct link to the ticket.
+
+Phase 6: Resolution and Continuous Learning
+
+    Resolution: The technical team works on the issue. Once resolved, they transition the ticket state to 'Done' in Jira.
+
+    User Notification: Jira triggers a webhook back to the FastAPI backend, which automatically sends an email notifying the original reporter that their issue has been resolved.
+
+    Auto-Improvement Loop: The system extracts the final resolution metadata from the completed ticket and saves it back into the Qdrant Vector DB, acting as a feedback loop to improve future retrievals and triage accuracy.
