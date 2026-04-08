@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes.example_routes import router as example_router
+from backend.src.api.routes.example_routes import router as example_router
 import os
 
 origins = [

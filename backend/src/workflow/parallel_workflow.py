@@ -8,7 +8,7 @@ from llama_index.core.workflow import (
     StopEvent,
 )
 
-from workflow.events import ProcessEvent, ResultEvent
+from backend.src.workflow.events import ProcessEvent, ResultEvent
 
 class ParallelWorkflow(Workflow):
     @step
