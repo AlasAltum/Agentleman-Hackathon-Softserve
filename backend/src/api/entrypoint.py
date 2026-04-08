@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.src.api.routes.example_routes import router as example_router
+from src.api.routes.example_routes import router as example_router
+from src.api.routes.incident_routes import router as incident_router
 import os
 
 origins = [
@@ -22,7 +23,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(example_router) 
+app.include_router(example_router)
+app.include_router(incident_router)
 
 @app.get("/")
 async def root():
