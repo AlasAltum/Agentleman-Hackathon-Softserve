@@ -111,21 +111,18 @@ def _setup_llm(provider: str) -> None:
         raise ValueError(f"Unknown LLM provider: {provider}")
 
 
-def _setup_gemini_llm(
-    api_key: Optional[str],
-    model: Optional[str],
-) -> None:
+def _setup_gemini_llm(api_key: Optional[str], model: Optional[str]) -> None:
     """Setup Google Gemini LLM (direct API).
     
     Models:
-        - models/gemini-pro (default)
-        - models/gemini-1.5-pro
-        - models/gemini-1.5-flash
-        - models/gemini-2.0-flash
+        - gemini-2.5-flash (default, recommended)
+        - gemini-2.0-flash-exp
+        - gemini-1.5-pro
+        - gemini-1.5-flash
     
     Requires: GOOGLE_API_KEY, GEMINI_API_KEY, or LLM_API_KEY
     """
-    from llama_index.llms.gemini import Gemini
+    from llama_index.llms.google_genai import GoogleGenAI
     
     api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -133,9 +130,9 @@ def _setup_gemini_llm(
             "API key required for Gemini. Set GOOGLE_API_KEY, GEMINI_API_KEY, or LLM_API_KEY"
         )
     
-    model = model or os.getenv("LLM_MODEL", "models/gemini-pro")
+    model = model or os.getenv("LLM_MODEL", "gemini-2.5-flash")
     
-    Settings.llm = Gemini(model=model, api_key=api_key)
+    Settings.llm = GoogleGenAI(model=model, api_key=api_key)
 
 
 def _setup_openrouter_llm(
@@ -234,17 +231,14 @@ def _setup_embeddings(provider: str) -> None:
         raise ValueError(f"Unknown embedding provider: {provider}")
 
 
-def _setup_gemini_embeddings(
-    api_key: Optional[str],
-    model: Optional[str],
-) -> None:
+def _setup_gemini_embeddings(api_key: Optional[str], model: Optional[str]) -> None:
     """Setup Google Gemini embeddings.
     
     Models:
-        - models/embedding-001 (default)
-        - models/text-embedding-004
+        - gemini-embedding-2-preview (default, recommended)
+        - text-embedding-004
     """
-    from llama_index.embeddings.gemini import GeminiEmbedding
+    from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
     
     api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -252,9 +246,9 @@ def _setup_gemini_embeddings(
             "API key required for Gemini embeddings. Set GOOGLE_API_KEY or LLM_API_KEY"
         )
     
-    model = model or os.getenv("EMBED_MODEL", "models/embedding-001")
+    model = model or os.getenv("EMBED_MODEL", "gemini-embedding-2-preview")
     
-    Settings.embed_model = GeminiEmbedding(model_name=model, api_key=api_key)
+    Settings.embed_model = GoogleGenAIEmbedding(model_name=model, api_key=api_key)
 
 
 def _setup_openrouter_embeddings(

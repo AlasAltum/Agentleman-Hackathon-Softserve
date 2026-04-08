@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from llama_index.core.workflow import Context
@@ -27,9 +28,22 @@ from src.workflow.sre_workflow import SREIncidentWorkflow
 @pytest.fixture(autouse=True)
 def setup_llama_index():
     """Setup mock LLM/embeddings before each test."""
+    # Force mock provider for unit tests
+    original_provider = os.environ.get("LLM_PROVIDER")
+    original_embed = os.environ.get("EMBED_PROVIDER")
+    
+    os.environ["LLM_PROVIDER"] = "mock"
+    os.environ["EMBED_PROVIDER"] = "mock"
+    
     setup_defaults()
     yield
     reset_settings()
+    
+    # Restore original values
+    if original_provider:
+        os.environ["LLM_PROVIDER"] = original_provider
+    if original_embed:
+        os.environ["EMBED_PROVIDER"] = original_embed
 
 
 @pytest.fixture
