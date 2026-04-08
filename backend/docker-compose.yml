@@ -12,13 +12,24 @@ services:
     ports:
       - "${POSTGRES_PORT}:${POSTGRES_PORT}"
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: llama-index-template-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./src/qdrant/qdrant_storage:/qdrant/storage:z
+
   app:
     build: .
     container_name: llama-index-template-backend
     depends_on:
       - db
+      - qdrant
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_BDNAME}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_BDNAME}"
+      QDRANT_URL: "http://qdrant:6333"
       APP_ENV: ${APP_ENV:-prod}
       APP_PORT: ${APP_PORT}
     env_file:

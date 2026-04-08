@@ -1,3 +1,6 @@
+# Qdrant
+qdrant_storage
+
 # Project specific
 
 poetry.lock
