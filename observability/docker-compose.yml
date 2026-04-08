@@ -1,0 +1,80 @@
+name: observability
+
+services:
+  grafana:
+    image: grafana/grafana-oss:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ${OBSERVABILITY_COMPOSE_ROOT:-.}/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ${OBSERVABILITY_COMPOSE_ROOT:-.}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - observability
+
+  loki:
+    image: grafana/loki:latest
+    command:
+      - "-config.file=/etc/loki/config.yml"
+    ports:
+      - "3100:3100"
+    volumes:
+      - ${OBSERVABILITY_COMPOSE_ROOT:-.}/loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    networks:
+      - observability
+
+  promtail:
+    image: grafana/promtail:latest
+    command:
+      - "-config.file=/etc/promtail/config.yml"
+    depends_on:
+      - loki
+    volumes:
+      - ${OBSERVABILITY_COMPOSE_ROOT:-.}/promtail/config.yml:/etc/promtail/config.yml:ro
+    networks:
+      - observability
+    # Docker log mounts are added in the log-shipping task.
+
+  mlflow:
+    build:
+      context: ${OBSERVABILITY_COMPOSE_ROOT:-.}/mlflow
+      dockerfile: Dockerfile
+    command: >-
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    networks:
+      - observability
+
+volumes:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+  mlflow_data:
+
+networks:
+  observability:
+    driver: bridge

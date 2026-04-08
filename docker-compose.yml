@@ -1,1 +1,6 @@
-# TODO, we will orchestrate backend, frontend, postgres, qdrant and maybe grafana
+name: gentleman-stack
+
+# Root stack services will be added here.
+# This file intentionally stays minimal for now so it can act as the base file
+# when composing additional stacks such as observability from the repository root.
+services: {}
