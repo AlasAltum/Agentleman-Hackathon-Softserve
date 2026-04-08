@@ -84,3 +84,5 @@ Execution guidance:
 ## 8. Documentation Maintenance
 
 - If you detect inconsistencies in `.agents` or `/docs`, update them proactively or ask the developer to update them.
+- In Python, if you create classes, try to document them, so it is easier for LLMs to read that code and understand what it does without the need to read the whole implementation
+
