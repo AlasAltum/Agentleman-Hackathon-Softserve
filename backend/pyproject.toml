@@ -14,7 +14,9 @@ dependencies = [
     "llama-index-embeddings-openai (>=0.6.0,<0.7.0)",
     "fastapi (>=0.135.3,<0.136.0)",
     "uvicorn (>=0.42.0,<0.43.0)",
-    "llama-index-workflows (>=2.17.3,<3.0.0)"
+    "llama-index-workflows (>=2.17.3,<3.0.0)",
+    "qdrant-client (>=1.17.1,<2.0.0)",
+    "fastembed (>=0.8.0,<0.9.0)"
 ]
 
 [project.optional-dependencies]
