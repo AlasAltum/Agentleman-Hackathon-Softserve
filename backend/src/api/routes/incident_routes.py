@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from src.guardrails import GuardrailsEngine
+from src.guardrails.validators import ContentTypeGuardrail
 from src.utils.logger import logger
 from src.workflow.models import IncidentInput, PreprocessedIncident, ResolutionPayload
 from src.workflow.phases.preprocessing import preprocess_incident
@@ -11,24 +11,40 @@ from src.workflow.sre_workflow import SREIncidentWorkflow
 router = APIRouter(prefix="/api")
 
 
-class IngestRequest(BaseModel):
-    text_desc: str
-    reporter_email: str
-    file_mime_type: str | None = None
-
-
 @router.post("/ingest")
-async def ingest_incident(request: IngestRequest):
+async def ingest_incident(
+    text_desc: str = Form(...),
+    reporter_email: str = Form(...),
+    file_attachment: UploadFile | None = File(default=None),
+):
     """Phase 1 entry point: submit an incident report for automated triage.
 
     Pre-workflow phases executed here:
-        - Guardrails validation
+        - Guardrails validation (text + file content-type)
         - Dynamic preprocessing (file routing, content consolidation)
     """
+    file_content: bytes | None = None
+    file_mime_type: str | None = None
+
+    if file_attachment:
+        file_content = await file_attachment.read()
+        file_mime_type = file_attachment.content_type
+
+        ct_guardrail = ContentTypeGuardrail()
+        ct_result = ct_guardrail.validate("", mime_type=file_mime_type)
+        if not ct_result.is_safe:
+            logger.warning(
+                "[ingest] Blocked file MIME type: %s — %s",
+                file_mime_type,
+                ct_result.message,
+            )
+            raise HTTPException(status_code=400, detail=ct_result.message)
+
     incident = IncidentInput(
-        text_desc=request.text_desc,
-        reporter_email=request.reporter_email,
-        file_mime_type=request.file_mime_type,
+        text_desc=text_desc,
+        reporter_email=reporter_email,
+        file_content=file_content,
+        file_mime_type=file_mime_type,
     )
 
     try:
