@@ -33,13 +33,19 @@ The next observability tasks will add:
 Emit sample structured logs and write them into the Promtail scrape directory:
 
 ```bash
-python observability/test/emit_logs.py > observability/test/logs/emit_logs.log
+python observability/test/emit_logs.py --output-file observability/test/logs/emit_logs.log
 ```
 
-On Windows PowerShell, prefer UTF-8 output so Loki does not ingest UTF-16 null bytes:
+This writes UTF-8 directly from Python and avoids shell redirection encoding problems.
+
+On Windows PowerShell 5.1, avoid `>` and `Out-File -Encoding utf8` for Loki sample logs:
+- `>` writes UTF-16 and produces the spaced-character effect in Grafana
+- `Out-File -Encoding utf8` writes a UTF-8 BOM, which shows up as `﻿` before the JSON line
+
+If you are using PowerShell 7 and still want shell redirection, use a no-BOM encoding mode instead:
 
 ```powershell
-python observability/test/emit_logs.py | Out-File -Encoding utf8 observability/test/logs/emit_logs.log
+python observability/test/emit_logs.py | Out-File -Encoding utf8NoBOM observability/test/logs/emit_logs.log
 ```
 
 Expose a sample Prometheus endpoint on the port already configured in `observability/prometheus/prometheus.yml`:

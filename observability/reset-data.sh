@@ -6,6 +6,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 RESTART_STACK="false"
+OBSERVABILITY_SERVICES=(grafana prometheus loki promtail mlflow)
+OBSERVABILITY_VOLUMES=(
+  gentleman-stack_grafana_data
+  gentleman-stack_prometheus_data
+  gentleman-stack_loki_data
+  gentleman-stack_mlflow_data
+)
 
 case "${1:-}" in
   "")
@@ -38,18 +45,18 @@ fi
 
 cd "${REPO_ROOT}"
 
-printf 'Stopping observability stack and removing persisted volumes...\n'
-docker compose \
-  -f docker-compose.yml \
-  -f observability/docker-compose.yml \
-  down --volumes --remove-orphans
+printf 'Stopping observability services managed by the root compose file...\n'
+docker compose -f docker-compose.yml stop "${OBSERVABILITY_SERVICES[@]}" >/dev/null 2>&1 || true
+docker compose -f docker-compose.yml rm -f -s -v "${OBSERVABILITY_SERVICES[@]}" >/dev/null 2>&1 || true
+
+printf 'Removing observability named volumes...\n'
+for volume_name in "${OBSERVABILITY_VOLUMES[@]}"; do
+  docker volume rm "${volume_name}" >/dev/null 2>&1 || true
+done
 
 if [ "${RESTART_STACK}" = "true" ]; then
-  printf 'Restarting observability stack...\n'
-  docker compose \
-    -f docker-compose.yml \
-    -f observability/docker-compose.yml \
-    up -d
+  printf 'Restarting observability services...\n'
+  docker compose -f docker-compose.yml up -d "${OBSERVABILITY_SERVICES[@]}"
 fi
 
 printf 'Observability data reset complete.\n'

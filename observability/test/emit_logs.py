@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
+from pathlib import Path
+from typing import TextIO
 
 import structlog
 
@@ -24,6 +26,17 @@ def configure_logging() -> None:
         ],
         logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
         cache_logger_on_first_use=True,
+    )
+
+
+def build_logger(target: TextIO):
+    return structlog.wrap_logger(
+        structlog.PrintLogger(target),
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            structlog.processors.JSONRenderer(),
+        ],
     )
 
 
@@ -52,11 +65,15 @@ def parse_args() -> argparse.Namespace:
         default=list(DEFAULT_PHASES),
         help="Stable workflow phases to emit.",
     )
+    parser.add_argument(
+        "--output-file",
+        help="Optional file path to write UTF-8 encoded JSON logs directly.",
+    )
     return parser.parse_args()
 
 
-def emit_logs(args: argparse.Namespace) -> None:
-    logger = structlog.get_logger("observability.test.logs").bind(
+def emit_logs(args: argparse.Namespace, target: TextIO) -> None:
+    logger = build_logger(target).bind(
         request_id=args.request_id,
         service=args.service,
         component=args.component,
@@ -80,7 +97,16 @@ def emit_logs(args: argparse.Namespace) -> None:
 
 def main() -> None:
     configure_logging()
-    emit_logs(parse_args())
+    args = parse_args()
+
+    if args.output_file:
+        output_path = Path(args.output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8", newline="\n") as handle:
+            emit_logs(args, handle)
+        return
+
+    emit_logs(args, sys.stdout)
 
 
 if __name__ == "__main__":

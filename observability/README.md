@@ -123,6 +123,39 @@ We will use:
 
 This setup gives the team a local control room for understanding the behavior of the AI workflow without depending on external observability infrastructure.
 
+The repository root `docker-compose.yml` now includes both the backend stack and the observability stack, so running `docker compose` from the repository root uses a single combined project.
+
+## Local Operations
+
+### Reset Observability Data
+
+Use `observability/reset-data.sh` when you want to clear the local Grafana, Prometheus, Loki, and MLflow state.
+
+From the repository root:
+
+```bash
+bash observability/reset-data.sh
+```
+
+This will:
+- stop only the observability services from the root compose project
+- remove the named Docker volumes used by the local stack
+- keep the versioned configuration files in the repository unchanged
+
+If you want the stack to start again immediately after the reset:
+
+```bash
+bash observability/reset-data.sh --restart
+```
+
+If you only want to see the available options:
+
+```bash
+bash observability/reset-data.sh --help
+```
+
+On Windows, run the script from a bash-compatible shell such as WSL or Git Bash. In this workspace, Docker validation has been running through WSL, so the safest option is to open the repository root in WSL and run the same commands there.
+
 ## Two Complementary Views
 
 ### Operational AI Observability

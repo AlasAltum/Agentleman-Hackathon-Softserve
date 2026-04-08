@@ -1,6 +1,11 @@
 name: gentleman-stack
 
-# Root stack services will be added here.
-# This file intentionally stays minimal for now so it can act as the base file
-# when composing additional stacks such as observability from the repository root.
+# Include the backend and observability sub-stacks from the repository root.
+include:
+  - path: backend/docker-compose.yml
+    project_directory: backend
+  - path: observability/docker-compose.yml
+    project_directory: observability
+
+# Root-level overrides can still be added here if needed.
 services: {}
