@@ -3,6 +3,9 @@ name: observability
 services:
   grafana:
     image: grafana/grafana-oss:latest
+    depends_on:
+      - prometheus
+      - loki
     ports:
       - "3000:3000"
     environment:
