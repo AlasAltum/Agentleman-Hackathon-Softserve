@@ -12,7 +12,8 @@ class IncidentType(str, Enum):
     HISTORICAL_REGRESSION = "historical_regression"
     NEW_INCIDENT = "new_incident"
 
-
+# TODO: Alonso: We could add severity scoring as an extra
+# If we have enough time
 class Severity(str, Enum):
     CRITICAL = "critical"
     HIGH = "high"

@@ -8,7 +8,7 @@ This task list is aligned with the chosen low-risk implementation:
 
 The tasks are ordered so the team can build the local stack first, then validate it with simple Python emitters before wiring the full backend workflow.
 
-1. task Create Observability Stack Skeleton
+1. [X] task Create Observability Stack Skeleton
 Description: Create the base folder structure and Docker Compose definition for the local observability stack under `/observability`.
 Requirements:
 - Create `observability/docker-compose.yml`.
@@ -20,7 +20,7 @@ How to check this is correct:
 - The file structure matches the planned observability layout.
 - Every required service is declared in Compose.
 
-2. task Configure Prometheus Scraping
+2. [X] task Configure Prometheus Scraping
 Description: Add the Prometheus configuration needed to scrape local metrics sources used by the observability stack and the later smoke-test scripts.
 Requirements:
 - Create `observability/prometheus/prometheus.yml`.
@@ -32,7 +32,7 @@ How to check this is correct:
 - The `/targets` page in Prometheus shows configured targets as `UP`.
 - Sample metrics from the test emitter become queryable in Prometheus.
 
-3. task Configure Loki and Log Shipping
+3. [X]  task Configure Loki and Log Shipping
 Description: Set up Loki for log storage and Promtail for shipping structured logs from local containers or test scripts.
 Requirements:
 - Create `observability/loki/config.yml`.
@@ -44,7 +44,7 @@ How to check this is correct:
 - Promtail starts successfully and reports active targets.
 - A sample JSON log emitted by the test script appears in Loki and is searchable by `request_id` or `phase`.
 
-4. task Provision Grafana Datasources
+4. [X] task Provision Grafana Datasources
 Description: Configure Grafana so it automatically connects to Prometheus and Loki when the stack starts.
 Requirements:
 - Add Grafana provisioning files under `observability/grafana/provisioning`.
@@ -57,7 +57,7 @@ How to check this is correct:
 - Prometheus and Loki appear automatically in Grafana datasources.
 - Grafana Explore can query both datasources without manual setup.
 
-5. task Add Local MLflow Tracing Server
+5. [X] task Add Local MLflow Tracing Server
 Description: Add a local MLflow service for storing and viewing traces produced by LlamaIndex and other tracing helpers.
 Requirements:
 - Add MLflow to `observability/docker-compose.yml`.
@@ -69,11 +69,10 @@ How to check this is correct:
 - The MLflow UI opens in the browser.
 - A sample trace created by the test scripts appears in the selected experiment.
 
-6. task Add Persistence and Reset Scripts
+6. [X] task Add Persistence and Reset Scripts
 Description: Make the local observability stack reproducible while preserving data across normal restarts and allowing a clean reset when needed.
 Requirements:
 - Add named Docker volumes for Grafana, Prometheus, Loki, and MLflow.
-- Create `observability/reset-data.ps1`.
 - Create `observability/reset-data.sh`.
 - Reset scripts must stop the stack and remove data volumes without deleting repository configuration.
 How to check this is correct:
@@ -81,7 +80,7 @@ How to check this is correct:
 - Running the reset script removes the persisted state.
 - After reset, the stack starts cleanly again.
 
-7. task Create Test Folder Scaffolding
+7. [X] task Create Test Folder Scaffolding
 Description: Create the `observability/test` folder and add the minimal dependency and usage scaffolding needed for smoke testing.
 Requirements:
 - Create `observability/test`.
@@ -92,7 +91,7 @@ How to check this is correct:
 - The test folder can be installed independently of the main backend.
 - A developer can follow the local instructions and run the scripts without guessing missing dependencies.
 
-8. task Implement Log Emitter Script
+8. [X] task Implement Log Emitter Script
 Description: Add a simple Python script that emits structured logs for Loki validation.
 Requirements:
 - Create `observability/test/emit_logs.py`.
@@ -104,7 +103,7 @@ How to check this is correct:
 - The logs appear in Loki through Promtail.
 - The logs are queryable in Grafana Explore.
 
-9. task Implement Metrics Emitter Script
+9. [X] task Implement Metrics Emitter Script
 Description: Add a simple Python script that exposes Prometheus metrics for smoke-test validation.
 Requirements:
 - Create `observability/test/emit_metrics.py`.
@@ -116,7 +115,7 @@ How to check this is correct:
 - Prometheus scrapes the endpoint successfully.
 - Sample metrics become queryable in Prometheus and visible in Grafana.
 
-10. task Implement MLflow Trace Emitter Script
+10. [X] task Implement MLflow Trace Emitter Script
 Description: Add a Python script that produces traces visible in the MLflow UI, ideally close to the intended LlamaIndex usage model.
 Requirements:
 - Create `observability/test/emit_traces.py`.
@@ -129,7 +128,7 @@ How to check this is correct:
 - The trace is visible in the MLflow UI under the configured experiment.
 - The trace shows a parent-child structure or enough detail to validate the setup.
 
-11. task Implement Combined Stack Validation Script
+11. [X] task Implement Combined Stack Validation Script
 Description: Add a convenience script that triggers logs, metrics, and traces together so the whole observability stack can be validated in one run.
 Requirements:
 - Create `observability/test/simulate_stack_check.py`.
@@ -141,7 +140,7 @@ How to check this is correct:
 - The same `request_id` can be found in logs and trace metadata.
 - The script can be rerun after a stack reset without manual cleanup.
 
-12. task Write Validation Runbook
+12. [X] task Write Validation Runbook
 Description: Document the exact steps needed to boot the stack, run the smoke tests, and verify the expected outputs.
 Requirements:
 - Add a short runbook in the observability docs or the test folder.
