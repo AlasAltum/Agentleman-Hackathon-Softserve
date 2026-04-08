@@ -4,7 +4,7 @@ import argparse
 import sys
 import uuid
 from pathlib import Path
-from typing import TextIO
+from typing import Sequence, TextIO
 
 import structlog
 
@@ -40,6 +40,35 @@ def build_logger(target: TextIO):
     )
 
 
+def emit_phase_logs(
+    request_id: str,
+    service: str,
+    component: str,
+    phases: Sequence[str],
+    target: TextIO,
+) -> None:
+    logger = build_logger(target).bind(
+        request_id=request_id,
+        service=service,
+        component=component,
+    )
+
+    for index, phase in enumerate(phases, start=1):
+        logger.info(
+            "phase_started",
+            phase=phase,
+            status="started",
+            sequence=index,
+        )
+        logger.info(
+            "phase_completed",
+            phase=phase,
+            status="success",
+            sequence=index,
+            latency_ms=index * 100,
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Emit structured JSON logs for Loki and Grafana validation.",
@@ -73,26 +102,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def emit_logs(args: argparse.Namespace, target: TextIO) -> None:
-    logger = build_logger(target).bind(
+    emit_phase_logs(
         request_id=args.request_id,
         service=args.service,
         component=args.component,
+        phases=args.phases,
+        target=target,
     )
-
-    for index, phase in enumerate(args.phases, start=1):
-        logger.info(
-            "phase_started",
-            phase=phase,
-            status="started",
-            sequence=index,
-        )
-        logger.info(
-            "phase_completed",
-            phase=phase,
-            status="success",
-            sequence=index,
-            latency_ms=index * 100,
-        )
 
 
 def main() -> None:

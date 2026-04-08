@@ -115,7 +115,7 @@ How to check this is correct:
 - Prometheus scrapes the endpoint successfully.
 - Sample metrics become queryable in Prometheus and visible in Grafana.
 
-10. [] task Implement MLflow Trace Emitter Script
+10. [X] task Implement MLflow Trace Emitter Script
 Description: Add a Python script that produces traces visible in the MLflow UI, ideally close to the intended LlamaIndex usage model.
 Requirements:
 - Create `observability/test/emit_traces.py`.
@@ -128,7 +128,7 @@ How to check this is correct:
 - The trace is visible in the MLflow UI under the configured experiment.
 - The trace shows a parent-child structure or enough detail to validate the setup.
 
-11. [] task Implement Combined Stack Validation Script
+11. [X] task Implement Combined Stack Validation Script
 Description: Add a convenience script that triggers logs, metrics, and traces together so the whole observability stack can be validated in one run.
 Requirements:
 - Create `observability/test/simulate_stack_check.py`.
@@ -140,7 +140,7 @@ How to check this is correct:
 - The same `request_id` can be found in logs and trace metadata.
 - The script can be rerun after a stack reset without manual cleanup.
 
-12. [] task Write Validation Runbook
+12. [X] task Write Validation Runbook
 Description: Document the exact steps needed to boot the stack, run the smoke tests, and verify the expected outputs.
 Requirements:
 - Add a short runbook in the observability docs or the test folder.
