@@ -69,7 +69,7 @@ How to check this is correct:
 - The MLflow UI opens in the browser.
 - A sample trace created by the test scripts appears in the selected experiment.
 
-6. [] task Add Persistence and Reset Scripts
+6. [X] task Add Persistence and Reset Scripts
 Description: Make the local observability stack reproducible while preserving data across normal restarts and allowing a clean reset when needed.
 Requirements:
 - Add named Docker volumes for Grafana, Prometheus, Loki, and MLflow.
@@ -80,7 +80,7 @@ How to check this is correct:
 - Running the reset script removes the persisted state.
 - After reset, the stack starts cleanly again.
 
-7. [] task Create Test Folder Scaffolding
+7. [X] task Create Test Folder Scaffolding
 Description: Create the `observability/test` folder and add the minimal dependency and usage scaffolding needed for smoke testing.
 Requirements:
 - Create `observability/test`.
@@ -91,7 +91,7 @@ How to check this is correct:
 - The test folder can be installed independently of the main backend.
 - A developer can follow the local instructions and run the scripts without guessing missing dependencies.
 
-8. [] task Implement Log Emitter Script
+8. [X] task Implement Log Emitter Script
 Description: Add a simple Python script that emits structured logs for Loki validation.
 Requirements:
 - Create `observability/test/emit_logs.py`.
@@ -103,7 +103,7 @@ How to check this is correct:
 - The logs appear in Loki through Promtail.
 - The logs are queryable in Grafana Explore.
 
-9. [] task Implement Metrics Emitter Script
+9. [X] task Implement Metrics Emitter Script
 Description: Add a simple Python script that exposes Prometheus metrics for smoke-test validation.
 Requirements:
 - Create `observability/test/emit_metrics.py`.
