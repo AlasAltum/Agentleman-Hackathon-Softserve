@@ -70,7 +70,7 @@ Run the combined stack validator. This writes a UTF-8 log file, emits a trace, a
 python observability/test/simulate_stack_check.py --metrics-wait-seconds 25
 ```
 
-If Docker is running through WSL and Prometheus cannot reach a Windows-hosted emitter on `host.docker.internal:9464`, run `emit_metrics.py` and `simulate_stack_check.py` from an environment that is reachable by the Docker engine.
+If Docker is running through WSL, set `OBSERVABILITY_METRICS_TARGET` in `.env` to the current WSL distro IP before starting the stack, then run `emit_metrics.py` and `simulate_stack_check.py` from that same distro.
 
 ## Validation Runbook
 
@@ -94,6 +94,13 @@ Notes:
 - `.env` provides the local Grafana and MLflow settings used by the observability stack.
 - `backend/.env` must exist because the root `docker-compose.yml` includes the backend compose file, even if you only start observability services.
 - The backend-related defaults at the bottom of `.env.example` are needed so the root compose file can interpolate the included backend model cleanly.
+
+If you are running the metrics emitter from Linux in WSL, update `.env` before starting the stack so Prometheus scrapes the distro IP instead of `host.docker.internal`:
+
+```bash
+WSL_IP=$(hostname -I | awk '{print $1}')
+sed -i "s#^OBSERVABILITY_METRICS_TARGET=.*#OBSERVABILITY_METRICS_TARGET=${WSL_IP}:9464#" .env
+```
 
 ### 2. Start only the observability services from the repository root
 
