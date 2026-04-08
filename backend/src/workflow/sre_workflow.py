@@ -152,7 +152,7 @@ class SREIncidentWorkflow(Workflow):
     ) -> StopEvent:
         logger.info("[ticketing] Creating ticket and alerting team")
         reporter_email = ev.preprocessed.original.reporter_email
-        ticket = _create_or_update_ticket(ev.triage, reporter_email)
+        ticket = _create_or_update_ticket(ev.triage, reporter_email, ev.preprocessed)
         _notify_team(ticket, ev.triage)
         logger.info(
             "[ticketing] Done — ticket=%s action=%s",
