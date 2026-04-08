@@ -26,10 +26,18 @@ def _start_conversation(request):
 ```
 This ensures the orchestration logic is immediately understood, while complex mechanisms remain hidden under the hood.
 
+## Idempotency
+
+All our cases must be reproducible. We will use Docker and docker-compose. We will also use mock data. We should allow having persistant memory in our docker volumes, but if no data is given, the same mock data can be generated again.
+
+
+## Environment variables and security
+
+Use many environmnet variables for API Keys, Database URLs. Try to keep a .env.example file with documentation on each environment variable.
 
 
 ## Quality Assurance & Testing
 
 - **Backend Testing**: Every new backend feature must include automated tests (e.g., using `pytest`) that execute swiftly and require **zero manual setup** from the developer. Tests should run against an isolated local environment or mocks, without depending on live external infrastructure unless explicitly integration-testing an adapter.
 
-- **Frontend Testing**: The frontend must be verifiable via automated **End-to-End (E2E) browser tests** using a framework like Playwright or Cypress. These tests must support being run entirely locally (e.g., against local Firebase Emulators or a local mock backend server) to prevent any barrier to validation.
+- **Frontend Testing**: The frontend must be verifiable via automated **End-to-End (E2E) browser tests** using a framework like Playwright or Cypress. These tests must support being run entirely locally to prevent any barrier to validation.
