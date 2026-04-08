@@ -4,8 +4,22 @@ global:
 
 scrape_configs:
   - job_name: prometheus
+    metrics_path: /metrics
     static_configs:
       - targets:
           - prometheus:9090
+        labels:
+          service: observability-prometheus
 
-  # Additional scrape targets are added in the Prometheus configuration task.
+  - job_name: observability_test_metrics
+    metrics_path: /metrics
+    static_configs:
+      # Use port 9464 to avoid colliding with the frontend
+      - targets:
+          - host.docker.internal:9464
+        labels:
+          service: observability-test
+          component: metrics-emitter
+
+  # The observability test emitter target becomes UP once the local
+  # emit_metrics.py smoke-test script is implemented and running on port 9464.
