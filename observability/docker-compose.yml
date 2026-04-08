@@ -50,9 +50,10 @@ services:
       - loki
     volumes:
       - ${OBSERVABILITY_COMPOSE_ROOT:-.}/promtail/config.yml:/etc/promtail/config.yml:ro
+      - ${OBSERVABILITY_COMPOSE_ROOT:-.}/test/logs:/var/observability/test/logs:ro
     networks:
       - observability
-    # Docker log mounts are added in the log-shipping task.
+    # Local smoke-test logs are scraped from /var/observability/test/logs.
 
   mlflow:
     build:
