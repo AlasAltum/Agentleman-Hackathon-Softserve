@@ -25,3 +25,11 @@ def _start_conversation(request):
          conversation_context._consider_new_response(processed_ans)
 ```
 This ensures the orchestration logic is immediately understood, while complex mechanisms remain hidden under the hood.
+
+
+
+## Quality Assurance & Testing
+
+- **Backend Testing**: Every new backend feature must include automated tests (e.g., using `pytest`) that execute swiftly and require **zero manual setup** from the developer. Tests should run against an isolated local environment or mocks, without depending on live external infrastructure unless explicitly integration-testing an adapter.
+
+- **Frontend Testing**: The frontend must be verifiable via automated **End-to-End (E2E) browser tests** using a framework like Playwright or Cypress. These tests must support being run entirely locally (e.g., against local Firebase Emulators or a local mock backend server) to prevent any barrier to validation.
