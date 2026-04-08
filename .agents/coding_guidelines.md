@@ -41,3 +41,8 @@ Use many environmnet variables for API Keys, Database URLs. Try to keep a .env.e
 - **Backend Testing**: Every new backend feature must include automated tests (e.g., using `pytest`) that execute swiftly and require **zero manual setup** from the developer. Tests should run against an isolated local environment or mocks, without depending on live external infrastructure unless explicitly integration-testing an adapter.
 
 - **Frontend Testing**: The frontend must be verifiable via automated **End-to-End (E2E) browser tests** using a framework like Playwright or Cypress. These tests must support being run entirely locally to prevent any barrier to validation.
+
+
+## Linting
+
+Use python ruff for the backend. Use your favorite linter for the frontend. (Still to be determined)
