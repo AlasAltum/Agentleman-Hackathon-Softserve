@@ -1,4 +1,3 @@
-import mlflow
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
 from typing import List
 from src.guardrails import GuardrailsEngine
@@ -94,12 +93,13 @@ async def ingest_incident(
     workflow = SREIncidentWorkflow(timeout=120)
 
     try:
-        with start_run(request_id=request_id, run_name=f"incident-{request_id[:8]}"):
-            structlog.contextvars.bind_contextvars(run_id=request_id)
-            with mlflow.start_span(name="sre_incident_workflow", span_type=mlflow.entities.SpanType.CHAIN) as span:
-                span.set_inputs({"request_id": request_id, "text_length": len(preprocessed.consolidated_text)})
-                ticket = await workflow.run(preprocessed=preprocessed)
-                span.set_outputs({"ticket_id": ticket.ticket_id, "action": ticket.action})
+        # MLflow 3.x: LlamaIndex autolog creates the Trace automatically when
+        # workflow.run() executes.  start_run only activates the structlog
+        # capture buffer; after the block it tags the completed Trace with
+        # request_id and the captured log lines.
+        structlog.contextvars.bind_contextvars(mlflow_request_id=request_id)
+        with start_run(request_id=request_id):
+            ticket = await workflow.run(preprocessed=preprocessed)
 
         logger.info("workflow_completed", ticket_id=ticket.ticket_id, action=ticket.action)
         
