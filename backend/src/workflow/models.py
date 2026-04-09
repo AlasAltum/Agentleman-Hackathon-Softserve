@@ -77,6 +77,8 @@ class TicketInfo(BaseModel):
     ticket_url: str
     action: str  # "created" or "updated"
     reporter_email: str
+    title: str = ""
+    description: str = ""
 
 
 class ResolutionPayload(BaseModel):

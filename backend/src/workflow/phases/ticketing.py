@@ -14,6 +14,45 @@ def _create_or_update_ticket(
     return _create_new_ticket(triage, reporter_email, preprocessed)
 
 
+def _build_ticket_title(triage: TriageResult) -> str:
+    """Derive a concise ticket title from the triage result."""
+    incident_type = triage.classification.incident_type.value.replace("_", " ").title()
+    severity = triage.severity.value.upper()
+    # Use the first sentence of technical_summary, capped at 80 chars
+    first_sentence = triage.technical_summary.split(".")[0].strip()
+    if len(first_sentence) > 80:
+        first_sentence = first_sentence[:77] + "..."
+    return f"[{severity}] {incident_type}: {first_sentence}"
+
+
+def _build_ticket_description(triage: TriageResult, preprocessed: Optional[PreprocessedIncident] = None) -> str:
+    """Build a structured Jira ticket description from the triage result."""
+    lines = [
+        "h2. Incident Summary",
+        triage.technical_summary,
+        "",
+        f"*Severity:* {triage.severity.value.upper()}",
+        f"*Incident Type:* {triage.classification.incident_type.value.replace('_', ' ').title()}",
+        "",
+        "h2. Business Impact",
+        triage.business_impact_summary,
+    ]
+
+    if triage.tool_results:
+        lines += ["", "h2. Tool Findings"]
+        for result in triage.tool_results:
+            hint = f" (severity hint: {result.severity_hint.value})" if result.severity_hint else ""
+            lines.append(f"*{result.tool_name}*{hint}: {result.findings}")
+
+    if triage.classification.historical_rca:
+        lines += ["", "h2. Historical RCA", triage.classification.historical_rca]
+
+    if preprocessed:
+        lines += ["", "h2. Original Report", preprocessed.original.text_desc]
+
+    return "\n".join(lines)
+
+
 def _create_new_ticket(
     triage: TriageResult,
     reporter_email: str,
@@ -25,7 +64,9 @@ def _create_new_ticket(
     """
     ticket_id = f"SRE-{str(uuid.uuid4())[:8].upper()}"
     ticket_url = f"https://jira.example.com/browse/{ticket_id}"
-    logger.info("ticket_created", ticket_id=ticket_id, severity=triage.severity)
+    title = _build_ticket_title(triage)
+    description = _build_ticket_description(triage, preprocessed)
+    logger.info("ticket_created", ticket_id=ticket_id, severity=triage.severity, title=title)
 
     if preprocessed and preprocessed.security_flag:
         logger.warning(
@@ -38,6 +79,8 @@ def _create_new_ticket(
         ticket_url=ticket_url,
         action="created",
         reporter_email=reporter_email,
+        title=title,
+        description=description,
     )
 
 

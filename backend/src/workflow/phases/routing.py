@@ -119,8 +119,8 @@ def _build_technical_summary(
     tool_results: list[ToolResult],
 ) -> str:
     lines = [
-        f"Incident type: {classification.incident_type}",
         f"Description: {preprocessed.consolidated_text[:500]}",
+        f"Incident type: {classification.incident_type.value}",
     ]
     if classification.historical_rca:
         lines.append(f"Historical RCA: {classification.historical_rca}")
