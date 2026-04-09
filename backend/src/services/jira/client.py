@@ -123,6 +123,48 @@ class JiraClient:
             issue_id=response.get("id"),
         )
 
+    def search_issues(
+        self,
+        *,
+        jql: str,
+        fields: list[str] | None,
+        max_results: int,
+        request_id: str,
+    ) -> list[dict[str, Any]]:
+        """Search Jira issues with JQL for support scripts and live integration checks."""
+        payload: dict[str, Any] = {
+            "jql": jql,
+            "maxResults": max_results,
+        }
+        if fields:
+            payload["fields"] = fields
+        response = self._request_json(
+            method="POST",
+            path="/rest/api/3/search/jql",
+            payload=payload,
+            request_id=request_id,
+            operation="search_issues",
+        )
+        return response.get("issues", [])
+
+    def get_issue(
+        self,
+        *,
+        issue_key: str,
+        fields: list[str] | None,
+        request_id: str,
+    ) -> dict[str, Any]:
+        """Fetch a Jira issue so tests and maintenance scripts can inspect its state."""
+        encoded_issue_key = parse.quote(issue_key, safe="")
+        query = {"fields": ",".join(fields)} if fields else None
+        return self._request_json(
+            method="GET",
+            path=f"/rest/api/3/issue/{encoded_issue_key}",
+            query=query,
+            request_id=request_id,
+            operation="get_issue",
+        )
+
     def get_transitions(
         self,
         *,
@@ -154,6 +196,24 @@ class JiraClient:
             payload={"transition": {"id": transition_id}},
             request_id=request_id,
             operation="transition_issue",
+        )
+
+    def delete_issue(
+        self,
+        *,
+        issue_key: str,
+        request_id: str,
+        delete_subtasks: bool = False,
+    ) -> None:
+        """Delete a Jira issue so test artifacts can be removed from the project."""
+        encoded_issue_key = parse.quote(issue_key, safe="")
+        query = {"deleteSubtasks": "true"} if delete_subtasks else None
+        self._request_json(
+            method="DELETE",
+            path=f"/rest/api/3/issue/{encoded_issue_key}",
+            query=query,
+            request_id=request_id,
+            operation="delete_issue",
         )
 
     def issue_browse_url(self, issue_key: str) -> str:

@@ -37,6 +37,32 @@ Optional:
 
 These variables should live in the repository root `.env.example` and runtime `.env`.
 
+### Atlassian Cloud API Token Setup
+
+This adapter is documented for Atlassian Cloud. Atlassian's current basic-auth guidance for Cloud uses an Atlassian account email address plus an API token, not an account password.
+
+1. Sign in to your Atlassian account and open `https://id.atlassian.com/manage-profile/security/api-tokens`.
+2. Create a new API token for this integration and give it a clear name such as `agentleman-backend-jira`.
+3. Copy the token when Atlassian shows it. Atlassian only shows the full token value at creation time.
+4. Put your Atlassian account email in `ATLASSIAN_EMAIL`.
+5. Put the new token in `ATLASSIAN_API_TOKEN`.
+6. Set `JIRA_BASE_URL` to your Jira Cloud site, for example `https://your-company.atlassian.net`.
+7. Set `JIRA_PROJECT_KEY` to the Jira project where the agent should create and resolve issues.
+8. Make sure that Atlassian account can create issues and transition issues in that project.
+
+Example root `.env` values:
+
+```env
+ATLASSIAN_EMAIL=engineer@example.com
+ATLASSIAN_API_TOKEN=atlassian_api_token_here
+JIRA_BASE_URL=https://your-company.atlassian.net
+JIRA_PROJECT_KEY=SRE
+JIRA_ISSUE_TYPE=Task
+JIRA_DEFAULT_LABELS=sre,observability
+```
+
+Do not commit real Atlassian credentials. Keep the real token only in the local runtime `.env` or in your deployment secret store.
+
 ### Behaviour
 
 - New incidents create a new Jira issue.
@@ -44,11 +70,127 @@ These variables should live in the repository root `.env.example` and runtime `.
 - The ticket summary and description come from the reported incident content, not from the agent's triage narrative.
 - Resolution is a separate explicit flow that transitions the Jira issue without adding comments.
 
+### Agent Tool Contract
+
+The agent should call only the two public methods in `src.services.jira.bridge`.
+
+The only supported ticket update flow is `resolve_ticket(...)`, which transitions an existing Jira issue to its resolved state.
+
+#### 1. Create Ticket
+
+Signature:
+
+```python
+create_ticket(preprocessed: PreprocessedIncident, triage: TriageResult, request_id: str) -> TicketInfo
+```
+
+Required inputs:
+
+- `preprocessed.original.text_desc`: original incident text that becomes the Jira summary and part of the description
+- `preprocessed.original.reporter_email`: reporter identity stored in the Jira description and returned in `TicketInfo`
+- `preprocessed.consolidated_text`: extra processed context for the Jira description
+- `triage.classification.incident_type`: used for labels like `incident-new_incident`
+- `triage.severity`: used for labels like `severity-high`
+- `request_id`: required non-empty request identifier for logs, traces, and metrics
+
+`TriageResult.technical_summary` and `TriageResult.business_impact_summary` are still required when constructing the model, even though the Jira adapter does not place those values into the Jira summary or description.
+
+Minimal invocation:
+
+```python
+from src.services.jira.bridge import create_ticket
+from src.workflow.models import (
+	ClassificationResult,
+	IncidentInput,
+	IncidentType,
+	PreprocessedIncident,
+	Severity,
+	TriageResult,
+)
+
+ticket = create_ticket(
+	preprocessed=PreprocessedIncident(
+		original=IncidentInput(
+			text_desc="Checkout API returns 500 after payment confirmation",
+			reporter_email="reporter@example.com",
+		),
+		consolidated_text="Checkout API returns 500 after payment confirmation in production.",
+	),
+	triage=TriageResult(
+		classification=ClassificationResult(
+			incident_type=IncidentType.NEW_INCIDENT,
+			top_candidates=[],
+		),
+		tool_results=[],
+		technical_summary="Checkout API p99 latency regressed after deployment.",
+		severity=Severity.HIGH,
+		business_impact_summary="Checkout completion rate is dropping.",
+	),
+	request_id="incident-2026-04-09-create",
+)
+```
+
+Returned object:
+
+```python
+TicketInfo(
+	ticket_id="SRE-123",
+	ticket_url="https://your-company.atlassian.net/browse/SRE-123",
+	action="created",
+	reporter_email="reporter@example.com",
+)
+```
+
+#### 2. Update Ticket State By Resolving It
+
+Signature:
+
+```python
+resolve_ticket(payload: ResolutionPayload, request_id: str) -> JiraResolutionResult
+```
+
+Required inputs:
+
+- `payload.ticket_id`: existing Jira issue key such as `SRE-123`
+- `payload.resolved_by`: actor or service name performing the resolution
+- `payload.resolution_notes`: resolution context for workflow logging
+- `request_id`: required non-empty request identifier for logs, traces, and metrics
+
+Minimal invocation:
+
+```python
+from src.services.jira.bridge import resolve_ticket
+from src.workflow.models import ResolutionPayload
+
+resolution = resolve_ticket(
+	payload=ResolutionPayload(
+		ticket_id="SRE-123",
+		resolved_by="jira-live-test-runner",
+		resolution_notes="Rollback completed and checkout recovered.",
+	),
+	request_id="incident-2026-04-09-resolve",
+)
+```
+
+Returned object:
+
+```python
+JiraResolutionResult(
+	ticket_id="SRE-123",
+	ticket_url="https://your-company.atlassian.net/browse/SRE-123",
+	transition_id="31",
+	transition_name="Done",
+	resolved_by="jira-live-test-runner",
+)
+```
+
+If your Jira workflow uses a non-standard resolution transition name, set `JIRA_RESOLVED_TRANSITION_NAME` in the root `.env`.
+
 ### Observability
 
 This adapter emits:
 
-- JSON log events such as `jira.ticketing.created` and `jira.http.completed`
+- JSON log events such as `jira.ticket.created.started`, `jira.ticket.created.completed`, `jira.ticket.resolution.completed`, and `jira.http.completed`
 - spans such as `jira.create_ticket`, `jira.resolve_ticket`, and `jira.http.create_issue`
 - counters and histograms such as `jira_tickets_created_total`, `jira_tickets_resolved_total`, and `jira_http_request_duration_ms`
 
@@ -59,4 +201,8 @@ Run the service-local tests from the backend directory:
 ```bash
 pytest src/services/jira/tests/test_bridge.py
 ```
+
+Live Jira integration coverage lives in [backend/src/services/jira/tests/test_live_jira_integration.py](backend/src/services/jira/tests/test_live_jira_integration.py). One test intentionally leaves a created issue open so the team can inspect its state, and another creates then resolves an issue through the adapter.
+
+To clean test issues afterwards, run [backend/src/services/jira/clean_test_issues.py](backend/src/services/jira/clean_test_issues.py). By default it deletes issues labeled `agentleman-jira-live-test`, and `--dry-run` lets you inspect the target set first.
  

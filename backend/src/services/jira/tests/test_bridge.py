@@ -4,6 +4,7 @@ import importlib
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -101,9 +102,10 @@ def test_create_ticket_creates_new_issue(monkeypatch):
     assert result.action == "created"
     assert result.reporter_email == "reporter@example.com"
     assert captured["summary"] == "Incident report - Checkout API returns 500 after payment confirmation"
-    assert "incident-new_incident" in captured["labels"]
-    assert "severity-high" in captured["labels"]
-    assert "security-review" in captured["labels"]
+    labels = cast(list[str], captured["labels"])
+    assert "incident-new_incident" in labels
+    assert "severity-high" in labels
+    assert "security-review" in labels
     description_text = str(captured["description"])
     assert "Original report:" in description_text
     assert "Technical summary:" not in description_text
