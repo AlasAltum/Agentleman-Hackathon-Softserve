@@ -17,4 +17,4 @@ RUN chmod +x ./scripts/*.sh
 
 EXPOSE 9000
 
-CMD ["yarn", "start"]
+CMD ["sh", "-c", "yarn build && mkdir -p /app/public && cp -r /app/.medusa/server/public/admin /app/public/admin && yarn start"]

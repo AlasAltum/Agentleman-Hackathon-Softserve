@@ -48,6 +48,9 @@ services:
       - .:/app
     ports:
       - "${EXPOSED_APP_PORT}:${APP_PORT}"
+    networks:
+      - default
+      - observability
 
 volumes:
   postgres_data:

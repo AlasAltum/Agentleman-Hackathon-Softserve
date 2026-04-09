@@ -1,6 +1,6 @@
 x-ecommerce-api-environment: &ecommerce-api-environment
   NODE_ENV: production
-  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT:-5432}/${ECOMMERCE_DB_NAME:-medusa}
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT:-5432}/${ECOMMERCE_DB_NAME:-medusa}?sslmode=disable
   STORE_CORS: ${ECOMMERCE_STORE_CORS:-http://localhost:8001}
   ADMIN_CORS: ${ECOMMERCE_ADMIN_CORS:-http://localhost:9000}
   AUTH_CORS: ${ECOMMERCE_AUTH_CORS:-http://localhost:9000,http://localhost:8001}
@@ -64,8 +64,8 @@ services:
         - fetch('http://127.0.0.1:9000/health').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))
       interval: 15s
       timeout: 10s
-      retries: 10
-      start_period: 30s
+      retries: 20
+      start_period: 120s
 
   ecommerce-web:
     build:
