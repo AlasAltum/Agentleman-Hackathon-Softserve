@@ -62,26 +62,20 @@ services:
     build:
       context: ./mlflow
       dockerfile: Dockerfile
-    command: >-
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000').read(1)
-      interval: 45s
-      timeout: 10s
-      retries: 5
-      start_period: 45s
     ports:
       - "5000:5000"
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=sqlite:////mlflow/mlflow.db
+      - MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts
+      - MLFLOW_SERVE_ARTIFACTS=true
     volumes:
       - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 45s
+      timeout: 30s
+      retries: 3
+      start_period: 59s
     networks:
       - observability
 
