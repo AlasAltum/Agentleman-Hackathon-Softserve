@@ -25,14 +25,14 @@ async def create_ticket_and_notify(
     reporter_email = ev.preprocessed.original.reporter_email
     ticket = await _create_new_ticket(ev.triage, reporter_email, ev.preprocessed)
     # Notify the team, besides the reporter
-    notify_team(ticket, ev.triage, request_id)
+    dispatch_notifications(ticket, ev.triage, request_id)
     log_phase_success("ticketing", latency_ms=0, ticket_id=ticket.ticket_id, action=ticket.action, request_id=request_id)
     return StopEvent(result=ticket)
 ```
 
 Important detail:
 
-- `notify_team(ticket, ev.triage, request_id)` does not send only the team email.
+- `dispatch_notifications(ticket, ev.triage, request_id)` does not send only the team email.
 - In the ticket-created path, it fans out into both:
   - the detailed email for the team
   - the high-level acknowledgement email for the reporter
@@ -40,7 +40,7 @@ Important detail:
 That fan-out happens in `backend/src/workflow/phases/ticketing.py`:
 
 ```python
-def notify_team(
+def dispatch_notifications(
     ticket: TicketInfo | None = None,
     triage: TriageResult | None = None,
     request_id: str = "unknown",
@@ -84,7 +84,7 @@ async def on_ticket_resolved(payload: dict[str, Any]):
 
     resolution_payload = _build_resolution_payload(payload)
     handle_resolution(resolution_payload)
-    notify_team(
+    dispatch_notifications(
         request_id=resolution_payload.request_id or "unknown",
         resolution_payload=resolution_payload,
     )
@@ -93,7 +93,7 @@ async def on_ticket_resolved(payload: dict[str, Any]):
 
 In this resolution branch:
 
-- `notify_team(..., resolution_payload=resolution_payload)` does not send a team email.
+- `dispatch_notifications(..., resolution_payload=resolution_payload)` does not send a team email.
 - It routes to `_send_resolution_reporter_email(...)`.
 - That means the resolution webhook sends the reporter resolution email.
 
@@ -107,7 +107,7 @@ Workflow layer:
 
 Notification service layer:
 
-- `bridge.py -> notify_team(ticket, triage, request_id=None)`
+- `bridge.py -> notify_team(ticket, triage, request_id=None)` (this is the notification-service-level function, distinct from the workflow-level `dispatch_notifications`)
 
 This function sends the team email to all recipients in `NYLAS_TEAM_EMAIL_RECIPIENTS`.
 
@@ -172,7 +172,7 @@ Main public functions in `bridge.py`:
 from src.services.notifications.bridge import (
     notify_reporter_resolution,
     notify_reporter_ticket_created,
-    notify_team,
+    dispatch_notifications,
 )
 ```
 

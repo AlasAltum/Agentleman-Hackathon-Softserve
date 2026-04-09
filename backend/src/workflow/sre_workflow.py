@@ -21,7 +21,7 @@ from src.workflow.phases.routing import (
     _dispatch_tools,
     _select_tools,
 )
-from src.workflow.phases.ticketing import _create_new_ticket, notify_team
+from src.workflow.phases.ticketing import _create_new_ticket, dispatch_notifications
 
 
 class SREIncidentWorkflow(Workflow):
@@ -186,6 +186,6 @@ class SREIncidentWorkflow(Workflow):
         reporter_email = ev.preprocessed.original.reporter_email
         ticket = await _create_new_ticket(ev.triage, reporter_email, ev.preprocessed)
         # Notify the team, besides the reporter
-        notify_team(ticket, ev.triage, request_id)
+        dispatch_notifications(ticket, ev.triage, request_id)
         log_phase_success("ticketing", latency_ms=0, ticket_id=ticket.ticket_id, action=ticket.action, request_id=request_id)
         return StopEvent(result=ticket)

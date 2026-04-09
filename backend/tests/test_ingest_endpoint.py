@@ -140,7 +140,7 @@ class TestJiraResolutionWebhook:
         }
 
         with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle, patch(
-            "src.api.routes.incident_routes._notify_team"
+            "src.api.routes.incident_routes.dispatch_notifications"
         ) as mock_notify:
             response = await async_client.post("/api/webhook/jira/resolved", json=webhook_payload)
 
@@ -205,7 +205,7 @@ class TestJiraResolutionWebhook:
         }
 
         with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle, patch(
-            "src.api.routes.incident_routes._notify_team"
+            "src.api.routes.incident_routes.dispatch_notifications"
         ) as mock_notify:
             response = await async_client.post("/api/webhook/jira/resolved", json=webhook_payload)
 

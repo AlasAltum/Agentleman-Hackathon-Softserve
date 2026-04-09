@@ -11,7 +11,7 @@ from src.utils.tracing import start_run
 from src.workflow.models import IncidentInput, ResolutionPayload
 from src.workflow.phases.preprocessing import preprocess_incident
 from src.workflow.phases.resolution import handle_resolution
-from src.workflow.phases.ticketing import notify_team
+from src.workflow.phases.ticketing import dispatch_notifications
 from src.workflow.sre_workflow import SREIncidentWorkflow
 import structlog
 
@@ -144,7 +144,7 @@ async def on_ticket_resolved(payload: dict[str, Any]):
     resolution_payload = _build_resolution_payload(payload)
     # The webhook arrives after Jira already resolved the issue, so we only trigger the local post-resolution flow here.
     handle_resolution(resolution_payload)
-    notify_team(
+    dispatch_notifications(
         request_id=resolution_payload.request_id or "unknown",
         resolution_payload=resolution_payload,
     )

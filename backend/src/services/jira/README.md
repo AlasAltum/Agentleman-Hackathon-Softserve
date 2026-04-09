@@ -83,7 +83,9 @@ Backend endpoint:
 POST /api/webhook/jira/resolved
 ```
 
-At runtime the webhook is projected into the internal `ResolutionPayload` and passed to the resolution phase. That resolution phase already contains the explicit `# TODO` marker where the notification service call should be wired.
+At runtime the webhook is projected into the internal `ResolutionPayload` and passed to the resolution phase. The webhook route then reuses the same ticketing notification fan-out used by the workflow so the reporter resolution email follows the same path in both environments.
+
+For local development, when the backend cannot expose a public webhook endpoint, the workflow can start a per-ticket poller by setting `POLL_JIRA_TICKETS=true`. That poller checks Jira every 30 seconds and calls the same backend webhook route with a synthetic Jira payload once the issue reaches a resolved state.
 
 Example Jira webhook body shape used by the backend:
 

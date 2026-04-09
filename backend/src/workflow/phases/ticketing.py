@@ -1,5 +1,6 @@
 import importlib
 import asyncio
+import os
 import uuid
 from typing import Optional
 
@@ -10,6 +11,9 @@ from src.utils.setup import get_settings
 from src.workflow.models import PreprocessedIncident, ResolutionPayload, TicketInfo, TriageResult
 
 _NOTIFICATION_BRIDGE_MODULE = "src.services.notifications.bridge"
+_JIRA_BRIDGE_MODULE = "src.services.jira.bridge"
+_LOCAL_RESOLUTION_POLL_INTERVAL_SECONDS = 45
+_RESOLUTION_POLLER_TASKS: set[asyncio.Task[None]] = set()
 
 
 _SUMMARY_PROMPT = """\
@@ -170,6 +174,33 @@ async def _create_new_ticket(
     request_id = preprocessed.request_id if preprocessed else "unknown"
     title = _build_ticket_title(triage, llm_summary)
     description = _build_ticket_description(triage, preprocessed, llm_summary)
+
+    if preprocessed and _jira_ticketing_enabled():
+        jira_bridge = _load_jira_bridge()
+        jira_ticket = await asyncio.to_thread(
+            jira_bridge.create_ticket,
+            preprocessed,
+            triage,
+            request_id,
+        )
+        logger.info(
+            "ticket_created",
+            request_id=request_id,
+            ticket_id=jira_ticket.ticket_id,
+            severity=triage.severity,
+            title=title,
+            provider="jira",
+        )
+        return TicketInfo(
+            ticket_id=jira_ticket.ticket_id,
+            ticket_url=jira_ticket.ticket_url,
+            action=jira_ticket.action,
+            reporter_email=jira_ticket.reporter_email,
+            title=title,
+            description=description,
+            request_id=jira_ticket.request_id or request_id,
+        )
+
     logger.info("ticket_created", request_id=request_id, ticket_id=ticket_id, severity=triage.severity, title=title)
 
     if preprocessed and preprocessed.security_flag:
@@ -191,7 +222,7 @@ async def _create_new_ticket(
 
 
 
-def notify_team(
+def dispatch_notifications(
     ticket: TicketInfo | None = None,
     triage: TriageResult | None = None,
     request_id: str = "unknown",
@@ -222,10 +253,51 @@ def notify_team(
     )
     _send_team_notifications(ticket, triage, active_request_id)
     _send_reporter_email(ticket, triage, active_request_id)
+    _start_resolution_poller(ticket, active_request_id)
 
 
 def _load_notification_bridge():
     return importlib.import_module(_NOTIFICATION_BRIDGE_MODULE)
+
+
+def _load_jira_bridge():
+    return importlib.import_module(_JIRA_BRIDGE_MODULE)
+
+
+def _jira_ticketing_enabled() -> bool:
+    return all(
+        os.getenv(name, "").strip()
+        for name in (
+            "JIRA_BASE_URL",
+            "JIRA_PROJECT_KEY",
+            "ATLASSIAN_EMAIL",
+            "ATLASSIAN_API_TOKEN",
+        )
+    )
+
+
+def _jira_polling_enabled() -> bool:
+    value = os.getenv("POLL_JIRA_TICKETS", "false").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _start_resolution_poller(ticket: TicketInfo, request_id: str) -> None:
+    if not _jira_polling_enabled():
+        return
+
+    if not _jira_ticketing_enabled():
+        return
+
+    jira_bridge = _load_jira_bridge()
+    task = asyncio.create_task(
+        jira_bridge.poll_ticket_until_resolved(
+            ticket,
+            request_id=request_id,
+            poll_interval_seconds=_LOCAL_RESOLUTION_POLL_INTERVAL_SECONDS,
+        )
+    )
+    _RESOLUTION_POLLER_TASKS.add(task)
+    task.add_done_callback(_RESOLUTION_POLLER_TASKS.discard)
 
 def _send_team_notifications(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
     try:
