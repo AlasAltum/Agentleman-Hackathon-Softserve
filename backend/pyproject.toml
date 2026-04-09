@@ -60,6 +60,7 @@ packages = [
     {include = "workflow", from = "src"},    
     {include = "guardrails", from = "src"},    
     {include = "integrations", from = "src"},    
+    {include = "qdrant_setup", from = "src"},    
     ]
 
 # GRUPOS - Solo para desarrollo (no van en la distribución)
