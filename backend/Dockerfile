@@ -35,4 +35,14 @@ WORKDIR /app
 RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["/venv/bin/python", "-m", "uvicorn", "src.api.entrypoint:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/bin/sh", "-c", "\
+    echo 'Waiting for Qdrant...' && \
+    until /venv/bin/python -c \"\
+import os, urllib.request; \
+base = os.getenv('QDRANT_URL', 'http://qdrant:6333').rstrip('/'); \
+urllib.request.urlopen(base + '/healthz') \
+\" 2>/dev/null; do sleep 1; done && \
+    echo 'Seeding Qdrant...' && \
+    /venv/bin/python -m src.qdrant_setup.setup && \
+    echo 'Starting backend...' && \
+    exec /venv/bin/python -m uvicorn src.api.entrypoint:app --host 0.0.0.0 --port 8000"]

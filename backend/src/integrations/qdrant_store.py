@@ -13,11 +13,20 @@ Usage:
 """
 
 import os
+from urllib.parse import urlparse
 
 from src.utils.logger import logger
 
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+# Support either QDRANT_URL (Docker-compose style) or QDRANT_HOST/QDRANT_PORT (legacy).
+_qdrant_url = os.getenv("QDRANT_URL", "")
+if _qdrant_url:
+    _parsed = urlparse(_qdrant_url)
+    QDRANT_HOST = _parsed.hostname or "localhost"
+    QDRANT_PORT = _parsed.port or 6333
+else:
+    QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+    QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "incidents")
 
 # Module-level cache — one index per process lifetime.
@@ -56,24 +65,32 @@ def get_qdrant_index():
         )
         _index = VectorStoreIndex.from_vector_store(vector_store)
         logger.info(
-            "[qdrant] Connected — host=%s port=%d collection=%s",
-            QDRANT_HOST,
-            QDRANT_PORT,
-            QDRANT_COLLECTION,
+            "qdrant_connected",
+            phase="retrieve",
+            component="qdrant_store",
+            status="success",
+            host=QDRANT_HOST,
+            port=QDRANT_PORT,
+            collection=QDRANT_COLLECTION,
         )
 
     except ImportError:
         logger.warning(
-            "[qdrant] llama-index-vector-stores-qdrant not installed — "
-            "install with: poetry add llama-index-vector-stores-qdrant"
+            "qdrant_import_error",
+            phase="retrieve",
+            component="qdrant_store",
+            status="error",
+            error_type="ImportError",
         )
     except Exception as exc:
         logger.warning(
-            "[qdrant] Could not connect to Qdrant at %s:%d — %s. "
-            "Incident retrieval disabled (all incidents classified as NEW).",
-            QDRANT_HOST,
-            QDRANT_PORT,
-            exc,
+            "qdrant_connection_failed",
+            phase="retrieve",
+            component="qdrant_store",
+            status="error",
+            error_type=type(exc).__name__,
+            host=QDRANT_HOST,
+            port=QDRANT_PORT,
         )
 
     return _index
@@ -116,6 +133,19 @@ async def store_incident(
             },
         )
         index.insert_nodes([node])
-        logger.info("[qdrant] Stored incident %s in vector DB", incident_id)
+        logger.info(
+            "qdrant_incident_stored",
+            phase="resolve",
+            component="qdrant_store",
+            status="success",
+            incident_id=incident_id,
+        )
     except Exception as exc:
-        logger.warning("[qdrant] Failed to store incident %s: %s", incident_id, exc)
+        logger.warning(
+            "qdrant_incident_store_failed",
+            phase="resolve",
+            component="qdrant_store",
+            status="error",
+            error_type=type(exc).__name__,
+            incident_id=incident_id,
+        )
