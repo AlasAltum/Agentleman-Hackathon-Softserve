@@ -1,7 +1,10 @@
 services:
   sre-api:
     build: ./api
-    env_file: ./api/.env
+    environment:
+      JWT_SECRET: ${SRE_JWT_SECRET}
+      JWT_EXPIRE_MINUTES: ${SRE_JWT_EXPIRE_MINUTES}
+      BACKEND_URL: ${SRE_BACKEND_URL}
     ports:
       - "8002:8000"
 

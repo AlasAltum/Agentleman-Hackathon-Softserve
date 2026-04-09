@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { clearToken, isAuthenticated } from "./auth";
 import LoginPage from "./pages/LoginPage";
 import ReportPage from "./pages/ReportPage";
@@ -105,9 +105,14 @@ function AppShell({ children, title }: { children: React.ReactNode; title: strin
 }
 
 function PrivateRoute({ children, title }: { children: React.ReactNode; title: string }) {
-  return isAuthenticated()
-    ? <AppShell title={title}>{children}</AppShell>
-    : <Navigate to="/login" replace />;
+  // useLocation forces a re-render on every navigation so the expiry
+  // check runs each time the user moves between routes.
+  useLocation();
+
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />;
+  }
+  return <AppShell title={title}>{children}</AppShell>;
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────

@@ -60,7 +60,7 @@ export default function ReportPage() {
     setLoading(true);
     try {
       const result = await submitReport(description, image, logs);
-      setSuccess(`Report submitted — ID: ${result.report_id}`);
+      setSuccess(`Report triaged — Jira Ticket: ${result.ticket_id}`);
       setDescription("");
       setImage(null);
       setLogs(null);
