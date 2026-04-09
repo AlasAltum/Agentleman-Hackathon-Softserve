@@ -1,5 +1,5 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
-from typing import List
+from typing import Any, List
 from src.guardrails import GuardrailsEngine
 from src.guardrails.models import ThreatLevel
 from src.guardrails.relevance_guardrail import RelevanceGuardrail
