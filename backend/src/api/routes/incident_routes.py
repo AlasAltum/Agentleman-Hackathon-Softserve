@@ -89,7 +89,7 @@ async def ingest_incident(
         logger.warning("relevance_check_blocked", reason=relevance_result.message)
         raise HTTPException(status_code=422, detail=relevance_result.message)
 
-    workflow = SREIncidentWorkflow(timeout=120)
+    workflow = SREIncidentWorkflow(timeout=300)
 
     try:
         # MLflow 3.x: LlamaIndex autolog creates the Trace automatically when
