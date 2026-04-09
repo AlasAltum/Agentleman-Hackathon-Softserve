@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "observability-smoke-tests"
+version = "0.1.0"
+description = "Docker-backed smoke tests for the local observability stack"
+authors = []
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.12,<4.0"
+mlflow = "3.2.0"
+prometheus-client = ">=0.21,<1"
+structlog = ">=24.4,<26"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

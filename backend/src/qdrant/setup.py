@@ -1,10 +1,11 @@
-import uuid
-from qdrant_client import QdrantClient, models
-from fastembed import TextEmbedding, ImageEmbedding
 import os
 import uuid
-
-import requests
+from qdrant_client import QdrantClient
+from llama_index.core import VectorStoreIndex, StorageContext, Document
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from llama_index.embeddings.fastembed import FastEmbedEmbedding
+from llama_index.core import Settings
+import json
 
 # --- CONFIGURATION ---
 COLLECTION_NAME = "incidents"
@@ -12,93 +13,80 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
 
 def initialize_system():
-    client = QdrantClient(url=f"http://{QDRANT_HOST}:{QDRANT_PORT}", prefer_grpc=False)
+    # 1. Setup global settings for LlamaIndex (using your local FastEmbed models)
+    # CLIP works for both text and vision, but for standard RAG, 
+    # we usually set the default text embedder.
+    Settings.embed_model = FastEmbedEmbedding(model_name="BAAI/bge-small-en-v1.5")
+    
+    client = QdrantClient(url=f"http://{QDRANT_HOST}:{QDRANT_PORT}")
 
+    # 2. Force Reset (Delete and Create)
+    if client.collection_exists(COLLECTION_NAME):
+        print(f"Deleting existing collection: {COLLECTION_NAME}...")
+        client.delete_collection(collection_name=COLLECTION_NAME)
+
+    # 3. Initialize LlamaIndex Qdrant Store
+    # Note: LlamaIndex will create the collection automatically with the right dimensions
+    vector_store = QdrantVectorStore(client=client, collection_name=COLLECTION_NAME)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    
+    print("✅ LlamaIndex + Qdrant Initialized!")
+    return storage_context
+
+def seed_data(storage_context):
+    file_path="incidents.json"
     try:
-        client.get_collections()
-        print("✅ Qdrant Client Connected!")
-    except Exception as e:
-        print(f"❌ Connection failed: {e}")
-        return None, None, None
+        with open(file_path, 'r', encoding='utf-8') as f:
+            incident_data = json.load(f)
+    except FileNotFoundError:
+        print(f"❌ Error: The file {file_path} was not found.")
+        return None
+    except json.JSONDecodeError:
+        print(f"❌ Error: Failed to decode JSON from {file_path}.")
+        return None
 
-    print("🤖 Loading Embedding Models...")
-    t_model = TextEmbedding(model_name="Qdrant/clip-ViT-B-32-text")
-    i_model = ImageEmbedding(model_name="Qdrant/clip-ViT-B-32-vision")
-
-    # The modern replacement for recreate_collection
-    if not client.collection_exists(COLLECTION_NAME):
-        print(f"🛠️ Creating new collection: {COLLECTION_NAME}...")
-        client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config={
-                "text_log": models.VectorParams(size=512, distance=models.Distance.COSINE),
-                "dashboard_imgs": models.VectorParams(
-                    size=512, 
-                    distance=models.Distance.COSINE,
-                    multivector_config=models.MultiVectorConfig(
-                        comparator=models.MultiVectorComparator.MAX_SIM
-                    )
-                ),
+    documents = []
+    for item in incident_data:
+        # LlamaIndex wraps data into Document objects
+        doc = Document(
+            text=item["text"],
+            doc_id=item["id"],
+            metadata={
+                "incident_id": item["id"],
+                "summary": item["summary"],
+                "resolution": item["resolution"],
+                "timestamp": "2026-04-08T10:00:00Z"
             }
         )
-    else:
-        print(f"📚 Collection '{COLLECTION_NAME}' already exists. Skipping creation.")
+        documents.append(doc)
 
-    return client, t_model, i_model
+    # This one line handles embedding AND upserting to Qdrant
+    index = VectorStoreIndex.from_documents(
+        documents, storage_context=storage_context
+    )
+    print(f"✅ Seeded {len(documents)} incidents into LlamaIndex.")
+    return index
 
-# TODO: Esto hay que completarlo con data fake util
-def seed_data(client, t_model, i_model):
-    # Simplified incident list
-    incident_data = [
-        {
-            "description": "Fallo de resolución DNS con el proveedor de SMTP tras múltiples reintentos de inicio de sesión.",
-            "images": [] # 0 images
-        },
-        {
-            "description": "Saturación de tablas de estados en el balanceador de carga tras una inundación de paquetes UDP.",
-            "images": ["data/screenshots/spike_1.png", "data/screenshots/spike_2.png"] # N images
-        },
-        {
-            "description": "Excepción de puntero nulo en el módulo CheckoutService al intentar calcular el IVA.",
-            "images": ["data/screenshots/error_log.png"] # 1 image
-        }
-    ]
+def verify_seeded_data(index, query_text="DNS failure"):
+    print(f"\n🔎 Testing LlamaIndex Retrieval for: '{query_text}'")
+    
+    # Create a retriever from the index
+    retriever = index.as_retriever(similarity_top_k=3)
+    results = retriever.retrieve(query_text)
 
-    points = []
+    if not results:
+        print("❌ No results found.")
+        return
 
-    for item in incident_data:
-            # 1. Vectorize Text (Always present)
-            text_vector = list(t_model.embed([item['description']]))[0]
-            
-            # 2. Prepare the Vector Dictionary
-            # Start with the mandatory text vector
-            point_vectors = {
-                "text_log": text_vector
-            }
-            
-            # 3. Only add images to the dictionary if they exist
-            if item['images']:
-                try:
-                    image_vectors = list(i_model.embed(item['images']))
-                    if image_vectors:
-                        point_vectors["dashboard_imgs"] = image_vectors
-                except Exception as e:
-                    print(f"⚠️ Image embedding failed: {e}")
-
-            # 4. Construct the Point
-            points.append(models.PointStruct(
-                id=str(uuid.uuid4()),
-                vector=point_vectors, # This dict may or may not have 'dashboard_imgs'
-                payload={
-                    "description": item['description'],
-                    "image_paths": item['images']
-                }
-            ))
-
-    client.upsert(collection_name="incidents", points=points)
-    print(f"✅ Seeded {len(points)} incidents (Description + Image Sets).")
+    for i, res in enumerate(results):
+        # res is a NodeWithScore object
+        meta = res.node.metadata
+        print(f"\nResult #{i+1} (Score: {res.score:.4f})")
+        print(f"ID: {meta.get('incident_id')}")
+        print(f"Summary: {meta.get('summary')}")
+        print(f"Resolution: {meta.get('resolution')}")
 
 if __name__ == "__main__":
-    q_client, text_m, img_m = initialize_system()
-    if q_client:
-        seed_data(q_client, text_m, img_m)
+    storage_ctx = initialize_system()
+    idx = seed_data(storage_ctx)
+    verify_seeded_data(idx, "Cant login and my new password wont arrive into my email wtff")

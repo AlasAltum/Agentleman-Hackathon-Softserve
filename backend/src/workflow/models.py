@@ -45,10 +45,10 @@ class PreprocessedIncident(BaseModel):
 
 class HistoricalCandidate(BaseModel):
     incident_id: str
-    similarity_score: float
     timestamp: datetime
-    summary: str
+    description: str
     resolution: Optional[str] = None
+    similarity_score: float
 
 
 class ClassificationResult(BaseModel):
