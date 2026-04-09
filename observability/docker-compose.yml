@@ -52,18 +52,22 @@ services:
     networks:
       - observability
 
-  promtail:
-    image: grafana/promtail:latest
+  alloy:
+    image: grafana/alloy:latest
     command:
-      - "-config.file=/etc/promtail/config.yml"
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
     depends_on:
       - loki
     volumes:
-      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - ./test/logs:/var/observability/test/logs:ro
+      - alloy_data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - observability
-    # Local smoke-test logs are scraped from /var/observability/test/logs.
+    # Ships backend container stdout/stderr and local smoke-test file logs into Loki.
 
   observability-test-runner:
     build:
@@ -113,6 +117,7 @@ services:
       - observability
 
 volumes:
+  alloy_data:
   grafana_data:
   prometheus_data:
   loki_data:

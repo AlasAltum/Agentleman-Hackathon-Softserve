@@ -119,11 +119,29 @@ We will use:
 - Grafana for dashboards and exploration
 - Prometheus for metrics
 - Loki for logs
+- Grafana Alloy for log collection and shipping
 - MLflow for workflow traces
 
 This setup gives the team a local control room for understanding the behavior of the AI workflow without depending on external observability infrastructure.
 
 The repository root `docker-compose.yml` now includes both the backend stack and the observability stack, so running `docker compose` from the repository root uses a single combined project.
+
+## How Backend Logs Reach Loki
+
+For backend workflow logs, nothing in the business logic needs to push directly to Loki.
+
+The intended path is:
+- the backend writes logs to standard output or standard error
+- Docker captures the container log stream
+- Grafana Alloy discovers the backend container through the Docker socket
+- Alloy forwards those logs to Loki
+- Grafana queries Loki
+
+That means the important requirement is not another Python-side Loki client. The important requirement is a collector that can see Docker logs. This stack now uses Alloy for that purpose.
+
+One repo-specific caveat still applies: the backend logger currently emits most workflow phase logs at `INFO`, and those logs are only enabled when the backend runs with `APP_ENV=dev`. If `APP_ENV=prod`, Loki will still receive warnings and errors, but most of the normal workflow progress logs will be absent because the backend never emits them.
+
+The local stack also keeps a file-based path for the smoke tests under `observability/test/logs/`, because `docker compose exec` output is not part of the long-running container log stream.
 
 ## Local Operations
 
@@ -155,6 +173,8 @@ bash observability/reset-data.sh --help
 ```
 
 On Windows, run the script from a bash-compatible shell such as WSL or Git Bash. In this workspace, Docker validation has been running through WSL, so the safest option is to open the repository root in WSL and run the same commands there.
+
+For file-based log collection details, see `observability/FILE_LOGS.md`.
 
 ## Two Complementary Views
 

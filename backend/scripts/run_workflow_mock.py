@@ -257,19 +257,22 @@ async def run_scenario(name: str, scenario: dict) -> object:
     print(f"{'=' * 72}")
 
     inc_data = scenario["incident"]
+    file_content = inc_data.get("file_content")
+    file_mime_type = inc_data.get("file_mime_type")
+    file_name = inc_data.get("file_name")
     incident = IncidentInput(
         text_desc=inc_data["text_desc"],
         reporter_email=inc_data["reporter_email"],
-        file_content=inc_data.get("file_content"),
-        file_mime_type=inc_data.get("file_mime_type"),
-        file_name=inc_data.get("file_name"),
+        file_contents=[file_content] if file_content is not None else [],
+        file_mime_types=[file_mime_type] if file_mime_type is not None else [],
+        file_names=[file_name] if file_name is not None else [],
     )
 
     print(f"\n  [1/3] INPUT")
     print(f"    reporter : {incident.reporter_email}")
     print(f"    text     : {incident.text_desc[:100].strip()}...")
-    if incident.file_name:
-        print(f"    file     : {incident.file_name} ({incident.file_mime_type})")
+    if incident.file_names:
+        print(f"    file     : {incident.file_names[0]} ({incident.file_mime_types[0]})")
     if mock_candidates:
         c = mock_candidates[0]
         print(f"    [mock candidates] {c['incident_id']} — similarity={c['similarity_score']} — {c['hours_ago']}h ago")

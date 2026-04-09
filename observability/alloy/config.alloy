@@ -1,0 +1,74 @@
+discovery.docker "backend" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "backend" {
+  targets = discovery.docker.backend.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "app"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    replacement   = "$1"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "backend"
+  }
+
+  rule {
+    target_label = "source"
+    replacement  = "docker"
+  }
+}
+
+loki.source.docker "backend" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.backend.output
+  forward_to = [loki.process.backend.receiver]
+}
+
+loki.process "backend" {
+  stage.docker {}
+
+  forward_to = [loki.write.local.receiver]
+}
+
+local.file_match "observability_test_logs" {
+  path_targets = [
+    {
+      __path__ = "/var/observability/test/logs/*.log",
+      job      = "observability-test-logs",
+      service  = "observability-test",
+      source   = "test-log-file",
+    },
+  ]
+}
+
+loki.source.file "observability_test_logs" {
+  targets    = local.file_match.observability_test_logs.targets
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

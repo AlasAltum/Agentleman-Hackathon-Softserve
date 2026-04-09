@@ -1,6 +1,9 @@
 # Qdrant
 qdrant_storage
 
+# Application logs
+logs/
+
 # Project specific
 
 poetry.lock

@@ -6,8 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 RESTART_STACK="false"
-OBSERVABILITY_SERVICES=(grafana prometheus loki promtail mlflow)
+OBSERVABILITY_SERVICES=(grafana prometheus loki alloy mlflow)
 OBSERVABILITY_VOLUMES=(
+  gentleman-stack_alloy_data
   gentleman-stack_grafana_data
   gentleman-stack_prometheus_data
   gentleman-stack_loki_data
