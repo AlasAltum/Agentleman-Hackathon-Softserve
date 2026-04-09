@@ -2,11 +2,12 @@ import importlib
 import asyncio
 import os
 import uuid
+from time import perf_counter
 from typing import Optional
 
 from llama_index.core.llms import ChatMessage
 
-from src.utils.logger import logger
+from src.utils.logger import logger, log_phase_start, log_phase_success, log_phase_failure
 from src.utils.setup import get_settings
 from src.workflow.models import PreprocessedIncident, ResolutionPayload, TicketInfo, TriageResult
 
@@ -87,6 +88,8 @@ async def _llm_summarize(triage: TriageResult, preprocessed: PreprocessedInciden
     )
 
     request_id = preprocessed.request_id or "unknown"
+    log_phase_start("llm_summarize", component="ticketing", request_id=request_id)
+    started_at = perf_counter()
     try:
         messages = [ChatMessage(role="user", content=prompt)]
         response = await asyncio.to_thread(llm.chat, messages)
@@ -102,8 +105,22 @@ async def _llm_summarize(triage: TriageResult, preprocessed: PreprocessedInciden
                 if result:
                     last_key = list(result)[-1]
                     result[last_key] += "\n" + line
+        latency_ms = int((perf_counter() - started_at) * 1000)
+        log_phase_success(
+            "llm_summarize",
+            latency_ms=latency_ms,
+            sections=list(result.keys()),
+            request_id=request_id,
+        )
         return result
     except Exception as exc:
+        latency_ms = int((perf_counter() - started_at) * 1000)
+        log_phase_failure(
+            "llm_summarize",
+            error_type=type(exc).__name__,
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
         logger.warning("ticket_llm_summarize_failed", request_id=request_id, error=str(exc))
         return {}
 
@@ -217,12 +234,32 @@ async def _create_new_ticket(
     description = _build_ticket_description(triage, preprocessed, llm_summary)
 
     if preprocessed and _jira_ticketing_enabled():
+        log_phase_start("jira_create_ticket", component="ticketing", request_id=request_id)
+        jira_started_at = perf_counter()
         jira_bridge = _load_jira_bridge()
-        jira_ticket = await asyncio.to_thread(
-            jira_bridge.create_ticket,
-            preprocessed,
-            triage,
-            request_id,
+        try:
+            jira_ticket = await asyncio.to_thread(
+                jira_bridge.create_ticket,
+                preprocessed,
+                triage,
+                request_id,
+            )
+        except Exception as exc:
+            jira_latency_ms = int((perf_counter() - jira_started_at) * 1000)
+            log_phase_failure(
+                "jira_create_ticket",
+                error_type=type(exc).__name__,
+                latency_ms=jira_latency_ms,
+                request_id=request_id,
+            )
+            raise
+        jira_latency_ms = int((perf_counter() - jira_started_at) * 1000)
+        log_phase_success(
+            "jira_create_ticket",
+            latency_ms=jira_latency_ms,
+            ticket_id=jira_ticket.ticket_id,
+            provider="jira",
+            request_id=request_id,
         )
         logger.info(
             "ticket_created",

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from src.workflow.models import PreprocessedIncident, ResolutionPayload, TicketInfo, TriageResult
 
-from .client import JiraClient, JiraClientError, JiraConfig
-from .observability import log_event, record_counter, traced_operation
+from .client import JiraClient, JiraClientError, JiraConfig, JiraConfigurationError
+from .observability import log_event, record_counter, record_histogram, traced_operation
 
 
 @dataclass(frozen=True)
@@ -43,9 +44,21 @@ def create_ticket(
     or description fields.
     """
     active_request_id = _require_request_id(request_id)
-    config = load_config_from_env()
-    client = JiraClient(config)
     reporter_email = preprocessed.original.reporter_email
+
+    try:
+        config = load_config_from_env()
+    except JiraConfigurationError as exc:
+        log_event(
+            "error",
+            "jira.ticket.config_error",
+            active_request_id,
+            error=str(exc),
+        )
+        raise
+
+    client = JiraClient(config)
+    started_at = perf_counter()
 
     with traced_operation(
         "jira.create_ticket",
@@ -56,29 +69,52 @@ def create_ticket(
     ):
         log_event(
             "info",
-            "jira.ticket.created.started",
+            "jira.ticket.create.started",
             active_request_id,
             reporter_email=reporter_email,
             severity=triage.severity.value,
             incident_type=triage.classification.incident_type.value,
         )
 
-        issue = client.create_issue(
-            summary=_build_issue_summary(preprocessed),
-            description=_build_issue_document(preprocessed),
-            labels=_build_labels(config, triage, preprocessed),
-            request_id=active_request_id,
-        )
+        try:
+            issue = client.create_issue(
+                summary=_build_issue_summary(preprocessed),
+                description=_build_issue_document(preprocessed),
+                labels=_build_labels(config, triage, preprocessed),
+                request_id=active_request_id,
+            )
+        except JiraClientError as exc:
+            duration_ms = round((perf_counter() - started_at) * 1000, 2)
+            log_event(
+                "error",
+                "jira.ticket.create.failed",
+                active_request_id,
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+            record_counter(
+                "jira_tickets_create_failures_total",
+                attributes={"incident_type": triage.classification.incident_type.value},
+            )
+            raise
+
+        duration_ms = round((perf_counter() - started_at) * 1000, 2)
         record_counter(
             "jira_tickets_created_total",
             attributes={"incident_type": triage.classification.incident_type.value},
         )
+        record_histogram(
+            "jira_ticket_create_duration_ms",
+            duration_ms,
+            attributes={"incident_type": triage.classification.incident_type.value},
+        )
         log_event(
             "info",
-            "jira.ticket.created.completed",
+            "jira.ticket.create.completed",
             active_request_id,
             issue_key=issue.issue_key,
             reporter_email=reporter_email,
+            duration_ms=duration_ms,
         )
         return TicketInfo(
             ticket_id=issue.issue_key,
@@ -97,8 +133,20 @@ def resolve_ticket(payload: ResolutionPayload, request_id: str) -> JiraResolutio
     narrow and predictable.
     """
     active_request_id = _require_request_id(request_id)
-    config = load_config_from_env()
+
+    try:
+        config = load_config_from_env()
+    except JiraConfigurationError as exc:
+        log_event(
+            "error",
+            "jira.ticket.config_error",
+            active_request_id,
+            error=str(exc),
+        )
+        raise
+
     client = JiraClient(config)
+    started_at = perf_counter()
 
     with traced_operation(
         "jira.resolve_ticket",
@@ -108,35 +156,52 @@ def resolve_ticket(payload: ResolutionPayload, request_id: str) -> JiraResolutio
     ):
         log_event(
             "info",
-            "jira.ticket.resolution.started",
+            "jira.ticket.resolve.started",
             active_request_id,
             ticket_id=payload.ticket_id,
             resolved_by=payload.resolved_by,
             notes_present=bool(payload.resolution_notes.strip()),
         )
 
-        transitions = client.get_transitions(
-            issue_key=payload.ticket_id,
-            request_id=active_request_id,
-        )
-        resolution_transition = _select_resolution_transition(
-            transitions,
-            preferred_transition_name=config.resolved_transition_name,
-        )
-        client.transition_issue(
-            issue_key=payload.ticket_id,
-            transition_id=resolution_transition["id"],
-            request_id=active_request_id,
-        )
+        try:
+            transitions = client.get_transitions(
+                issue_key=payload.ticket_id,
+                request_id=active_request_id,
+            )
+            resolution_transition = _select_resolution_transition(
+                transitions,
+                preferred_transition_name=config.resolved_transition_name,
+            )
+            client.transition_issue(
+                issue_key=payload.ticket_id,
+                transition_id=resolution_transition["id"],
+                request_id=active_request_id,
+            )
+        except JiraClientError as exc:
+            duration_ms = round((perf_counter() - started_at) * 1000, 2)
+            log_event(
+                "error",
+                "jira.ticket.resolve.failed",
+                active_request_id,
+                ticket_id=payload.ticket_id,
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+            record_counter("jira_tickets_resolve_failures_total")
+            raise
+
+        duration_ms = round((perf_counter() - started_at) * 1000, 2)
         record_counter("jira_tickets_resolved_total")
+        record_histogram("jira_ticket_resolve_duration_ms", duration_ms)
         log_event(
             "info",
-            "jira.ticket.resolution.completed",
+            "jira.ticket.resolve.completed",
             active_request_id,
             ticket_id=payload.ticket_id,
             transition_id=resolution_transition["id"],
             transition_name=resolution_transition["name"],
             resolved_by=payload.resolved_by,
+            duration_ms=duration_ms,
         )
         return JiraResolutionResult(
             ticket_id=payload.ticket_id,
