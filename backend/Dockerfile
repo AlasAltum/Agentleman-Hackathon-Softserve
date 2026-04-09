@@ -16,7 +16,7 @@ RUN poetry bundle venv --python=/usr/local/bin/python3 --only=main /venv
 FROM python:3.12-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app
 ENV APP_ENV=prod
 
 COPY --from=builder /venv /venv
@@ -27,4 +27,4 @@ WORKDIR /app
 RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["/venv/bin/python", "src/api/entrypoint.py"]
+ENTRYPOINT ["/venv/bin/python", "-m", "uvicorn", "src.api.entrypoint:app", "--host", "0.0.0.0", "--port", "8000"]
