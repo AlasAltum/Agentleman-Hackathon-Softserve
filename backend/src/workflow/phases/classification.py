@@ -24,9 +24,10 @@ async def retrieve_candidates(preprocessed: PreprocessedIncident) -> list[Histor
     """
     from src.integrations.qdrant_store import get_qdrant_index
 
+    request_id = preprocessed.request_id or "unknown"
     index = get_qdrant_index()
     if index is None:
-        logger.info("vector_db_retrieval", status="stub", integration="qdrant")
+        logger.info("vector_db_retrieval", request_id=request_id, status="stub", integration="qdrant")
         return []
 
     try:
@@ -50,14 +51,15 @@ async def retrieve_candidates(preprocessed: PreprocessedIncident) -> list[Histor
             )
 
         logger.info(
-            "[classification] Qdrant returned %d candidates (top_k=%d)",
-            len(candidates),
-            _TOP_K_CANDIDATES,
+            "vector_db_retrieval_done",
+            request_id=request_id,
+            candidates_count=len(candidates),
+            top_k=_TOP_K_CANDIDATES,
         )
         return candidates
 
     except Exception as exc:
-        logger.warning("[classification] Vector retrieval failed: %s — defaulting to NEW_INCIDENT", exc)
+        logger.warning("vector_db_retrieval_failed", request_id=request_id, error=str(exc))
         return []
 
 
@@ -121,27 +123,26 @@ def rerank_candidates(candidates: list[HistoricalCandidate]) -> list[HistoricalC
         ]
 
         logger.info(
-            "[classification] Cohere reranked %d → %d candidates",
-            len(candidates),
-            len(reranked_candidates),
+            "rerank_done",
+            reranker="cohere",
+            input_count=len(candidates),
+            output_count=len(reranked_candidates),
         )
         return reranked_candidates
 
     except ImportError:
-        logger.warning("[classification] CohereRerank not installed — falling back to similarity-based ranking")
+        logger.warning("rerank_fallback", reason="CohereRerank not installed")
     except Exception as exc:
-        logger.warning(
-            "[classification] Cohere reranking failed (%s) — falling back to similarity-based ranking",
-            exc,
-        )
+        logger.warning("rerank_fallback", reason="cohere_error", error=str(exc))
 
     # Fallback: Sort by similarity score
     ranked = sorted(candidates, key=lambda c: c.similarity_score, reverse=True)
     top_n = ranked[:_RERANKER_TOP_N]
     logger.info(
-        "[classification] Fallback reranked %d → %d candidates (similarity-based)",
-        len(candidates),
-        len(top_n),
+        "rerank_done",
+        reranker="similarity_fallback",
+        input_count=len(candidates),
+        output_count=len(top_n),
     )
     return top_n
 
@@ -163,9 +164,10 @@ def classify_incident(candidates: list[HistoricalCandidate]) -> ClassificationRe
 
     if top.similarity_score < _HIGH_SIMILARITY_THRESHOLD:
         logger.info(
-            "[classification] Best score %.3f < threshold %.3f — NEW_INCIDENT",
-            top.similarity_score,
-            _HIGH_SIMILARITY_THRESHOLD,
+            "classification_result",
+            incident_type=IncidentType.NEW_INCIDENT.value,
+            best_score=round(top.similarity_score, 3),
+            threshold=_HIGH_SIMILARITY_THRESHOLD,
         )
         return ClassificationResult(
             incident_type=IncidentType.NEW_INCIDENT,
@@ -176,9 +178,10 @@ def classify_incident(candidates: list[HistoricalCandidate]) -> ClassificationRe
 
     if age_hours <= _ALERT_STORM_HOURS:
         logger.info(
-            "alert_storm_detected",
-            top_candidate_age_hours=age_hours,
-            score=top.similarity_score,
+            "classification_result",
+            incident_type=IncidentType.ALERT_STORM.value,
+            top_candidate_age_hours=round(age_hours, 1),
+            score=round(top.similarity_score, 3),
         )
         return ClassificationResult(
             incident_type=IncidentType.ALERT_STORM,
@@ -186,9 +189,10 @@ def classify_incident(candidates: list[HistoricalCandidate]) -> ClassificationRe
         )
 
     logger.info(
-        "historical_regression_detected",
-        top_candidate_age_hours=age_hours,
-        score=top.similarity_score,
+        "classification_result",
+        incident_type=IncidentType.HISTORICAL_REGRESSION.value,
+        top_candidate_age_hours=round(age_hours, 1),
+        score=round(top.similarity_score, 3),
     )
     return ClassificationResult(
         incident_type=IncidentType.HISTORICAL_REGRESSION,

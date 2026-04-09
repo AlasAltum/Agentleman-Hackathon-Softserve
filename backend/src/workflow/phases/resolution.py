@@ -40,3 +40,4 @@ def _save_to_knowledge_base(payload: ResolutionPayload) -> None:
         ticket_id=payload.ticket_id,
         integration="qdrant",
     )
+

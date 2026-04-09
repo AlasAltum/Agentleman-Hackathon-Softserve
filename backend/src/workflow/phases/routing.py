@@ -11,17 +11,14 @@ from src.workflow.models import (
 )
 from src.workflow.tools.business_impact import check_business_impact
 from src.workflow.tools.codebase_analyzer import analyze_codebase
-from src.workflow.tools.infra_analyzer import analyze_infrastructure
 from src.workflow.tools.telemetry_analyzer import analyze_telemetry
 
-_INFRA_KEYWORDS = ["terraform", "infrastructure", ".tf", "deployment", "kubernetes", "k8s", "pod", "helm"]
 _CODEBASE_KEYWORDS = ["error", "exception", "syntax", "traceback", "stacktrace", "null pointer", "500", "bug"]
 _TELEMETRY_KEYWORDS = ["spike", "latency", "cpu", "memory", "disk", "timeout", "p99", "metric", "alert"]
 
 _TOOL_DISPATCH: dict[str, any] = {
     "business_impact": check_business_impact,
     "codebase_analyzer": analyze_codebase,
-    "infra_analyzer": analyze_infrastructure,
     "telemetry_analyzer": analyze_telemetry,
 }
 
@@ -44,14 +41,12 @@ def _select_tools(
     if "business_impact" not in already_called:
         selected.append("business_impact")
     
-    if any(kw in text for kw in _INFRA_KEYWORDS) and "infra_analyzer" not in already_called:
-        selected.append("infra_analyzer")
     if any(kw in text for kw in _CODEBASE_KEYWORDS) and "codebase_analyzer" not in already_called:
         selected.append("codebase_analyzer")
     if any(kw in text for kw in _TELEMETRY_KEYWORDS) and "telemetry_analyzer" not in already_called:
         selected.append("telemetry_analyzer")
 
-    logger.info("tools_selected", tools=selected)
+    logger.info("tools_selected", request_id=preprocessed.request_id or "unknown", tools=selected)
     return selected
 
 
@@ -60,13 +55,14 @@ async def _dispatch_tools(
     preprocessed: PreprocessedIncident,
 ) -> list[ToolResult]:
     """Dispatch selected tools concurrently and collect results."""
+    request_id = preprocessed.request_id or "unknown"
     coroutines = [
         _TOOL_DISPATCH[tool](preprocessed.consolidated_text)
         for tool in tools
         if tool in _TOOL_DISPATCH
     ]
     results = await asyncio.gather(*coroutines)
-    logger.info("tools_completed", count=len(results))
+    logger.info("tools_completed", request_id=request_id, count=len(results))
     return list(results)
 
 

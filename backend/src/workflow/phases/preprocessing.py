@@ -22,7 +22,7 @@ _OCR_PROMPT = (
 )
 
 
-async def preprocess_incident(incident: IncidentInput) -> PreprocessedIncident:
+async def preprocess_incident(incident: IncidentInput, request_id: str = "unknown") -> PreprocessedIncident:
     """Route files by MIME type / extension, extract content, consolidate into clean string."""
     extracted_texts: list[str] = []
     mime_types: list[str] = []
@@ -32,10 +32,10 @@ async def preprocess_incident(incident: IncidentInput) -> PreprocessedIncident:
     ):
         ext = _file_extension(file_name)
         if ext in _BLOCKED_EXTENSIONS:
-            logger.warning("blocked_file_extension", file_name=file_name, ext=ext)
+            logger.warning("blocked_file_extension", request_id=request_id, file_name=file_name, ext=ext)
             raise ValueError(f"File type not allowed: {ext}")
 
-        file_metadata = await _extract_file_content(content, mime_type, file_name)
+        file_metadata = await _extract_file_content(content, mime_type, file_name, request_id)
         extracted_texts.append(file_metadata.extracted_text)
         mime_types.append(mime_type)
 
@@ -45,6 +45,7 @@ async def preprocess_incident(incident: IncidentInput) -> PreprocessedIncident:
         original=incident,
         consolidated_text=consolidated_text,
         file_metadata=file_metadata,
+        request_id=request_id,
     )
 
 
@@ -52,20 +53,21 @@ async def _extract_file_content(
     file_content: bytes,
     mime_type: str,
     file_name: str,
+    request_id: str = "unknown",
 ) -> FileMetadata:
     ext = _file_extension(file_name)
 
     if ext in _JSON_EXTENSIONS or mime_type == "application/json":
-        extracted = _extract_json(file_content)
+        extracted = _extract_json(file_content, request_id)
     elif ext in _CSV_EXTENSIONS or mime_type in ("text/csv", "application/csv"):
-        extracted = _extract_csv(file_content)
+        extracted = _extract_csv(file_content, request_id)
     elif mime_type in ("image/png", "image/jpeg", "image/gif", "image/webp"):
-        extracted = await _extract_image_ocr(file_content, mime_type)
+        extracted = await _extract_image_ocr(file_content, mime_type, request_id)
     elif mime_type and mime_type.startswith("text/"):
         extracted = _extract_text_log(file_content)
     else:
         extracted = ""
-        logger.warning("unsupported_mime_type", mime_type=mime_type)
+        logger.warning("unsupported_mime_type", request_id=request_id, mime_type=mime_type)
 
     return FileMetadata(mime_types=[mime_type], extracted_text=extracted)
 
@@ -84,18 +86,18 @@ def _extract_text_log(content: bytes) -> str:
 
 # ── JSON ─────────────────────────────────────────────────────────────────────
 
-def _extract_json(content: bytes) -> str:
+def _extract_json(content: bytes, request_id: str = "unknown") -> str:
     try:
         data = json.loads(content.decode("utf-8", errors="replace"))
         return json.dumps(data, indent=2, ensure_ascii=False)
     except json.JSONDecodeError as exc:
-        logger.warning("json_parse_error", error=str(exc))
+        logger.warning("json_parse_error", request_id=request_id, error=str(exc))
         return content.decode("utf-8", errors="replace")
 
 
 # ── CSV ───────────────────────────────────────────────────────────────────────
 
-def _extract_csv(content: bytes) -> str:
+def _extract_csv(content: bytes, request_id: str = "unknown") -> str:
     try:
         text = content.decode("utf-8", errors="replace")
         reader = csv.DictReader(io.StringIO(text))
@@ -107,13 +109,13 @@ def _extract_csv(content: bytes) -> str:
             lines.append(", ".join(f"{k}={v}" for k, v in row.items()))
         return f"CSV ({len(lines)} rows):\n" + "\n".join(lines)
     except Exception as exc:
-        logger.warning("csv_parse_error", error=str(exc))
+        logger.warning("csv_parse_error", request_id=request_id, error=str(exc))
         return content.decode("utf-8", errors="replace")
 
 
 # ── Image OCR (Gemini multimodal) ─────────────────────────────────────────────
 
-async def _extract_image_ocr(content: bytes, mime_type: str) -> str:
+async def _extract_image_ocr(content: bytes, mime_type: str, request_id: str = "unknown") -> str:
     api_key = (
         os.getenv("GOOGLE_API_KEY")
         or os.getenv("GEMINI_API_KEY")
@@ -121,7 +123,7 @@ async def _extract_image_ocr(content: bytes, mime_type: str) -> str:
     )
 
     if not api_key:
-        logger.warning("no_api_key_configured", integration="gemini_ocr")
+        logger.warning("no_api_key_configured", request_id=request_id, integration="gemini_ocr")
         return "[image attached — OCR requires GOOGLE_API_KEY or GEMINI_API_KEY]"
 
     try:
@@ -137,14 +139,14 @@ async def _extract_image_ocr(content: bytes, mime_type: str) -> str:
             [_OCR_PROMPT, image_part],
         )
         extracted = response.text.strip()
-        logger.info("ocr_extraction_complete", characters=len(extracted))
+        logger.info("ocr_extraction_complete", request_id=request_id, characters=len(extracted))
         return extracted
 
     except ImportError:
-        logger.warning("google_generativeai_not_installed")
+        logger.warning("google_generativeai_not_installed", request_id=request_id)
         return "[image attached — install google-generativeai for OCR support]"
     except Exception as exc:
-        logger.warning("ocr_failed", error=str(exc))
+        logger.warning("ocr_failed", request_id=request_id, error=str(exc))
         return "[image attached — OCR extraction failed]"
 
 
