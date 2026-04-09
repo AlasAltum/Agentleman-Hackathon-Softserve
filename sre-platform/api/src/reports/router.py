@@ -16,7 +16,7 @@ _INGEST_URL = f"{BACKEND_URL}/api/ingest"
 _FORWARD_TIMEOUT = 120.0
 
 
-@router.post("/", status_code=201)
+@router.post("/", status_code=202)
 async def create_report(
     description: Annotated[str, Form()],
     image: Annotated[UploadFile, File()],
@@ -59,5 +59,5 @@ async def create_report(
         raise HTTPException(status_code=resp.status_code, detail=resp.json().get("detail", "Backend rejected the report."))
 
     result = resp.json()
-    logger.info("report_forwarded", ticket_id=result.get("ticket_id"))
+    logger.info("report_accepted", request_id=result.get("request_id"))
     return result

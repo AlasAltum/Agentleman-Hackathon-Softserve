@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { submitReport } from "../api";
+import { submitReport, ReportError } from "../api";
 
 function IconUpload() {
   return (
@@ -60,12 +60,24 @@ export default function ReportPage() {
     setLoading(true);
     try {
       const result = await submitReport(description, image, logs);
-      setSuccess(`Report triaged — Jira Ticket: ${result.ticket_id}`);
+      setSuccess(`Report accepted — tracking ID: ${result.request_id}`);
       setDescription("");
       setImage(null);
       setLogs(null);
-    } catch {
-      setError("Failed to submit report. Are you still logged in?");
+    } catch (err) {
+      if (err instanceof ReportError) {
+        if (err.status === 400 || err.status === 422) {
+          setError(`Invalid report: ${err.detail}`);
+        } else if (err.status === 502) {
+          setError("The backend service is currently unavailable. Please try again later.");
+        } else if (err.status >= 500) {
+          setError("Something went wrong on our end. Please try again later.");
+        } else {
+          setError("Failed to submit report. Are you still logged in?");
+        }
+      } else {
+        setError("Failed to submit report. Are you still logged in?");
+      }
     } finally {
       setLoading(false);
     }
