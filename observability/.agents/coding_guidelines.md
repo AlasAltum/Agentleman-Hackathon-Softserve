@@ -42,7 +42,7 @@ Required components:
 - Grafana for dashboards and exploration
 - Prometheus for metrics scraping and querying
 - Loki for log storage and querying
-- Promtail for shipping container logs into Loki
+- Grafana Alloy for shipping logs into Loki
 - MLflow for workflow traces and execution trees
 
 Rules:
@@ -202,13 +202,13 @@ def log_phase_failure(phase: str, error_type: str) -> None:
 Preferred local pattern:
 1. Python writes structured JSON logs to standard output with `structlog`.
 2. Docker captures container output.
-3. Promtail reads Docker logs.
-4. Promtail ships those logs to Loki.
+3. Grafana Alloy reads Docker logs.
+4. Grafana Alloy ships those logs to Loki.
 5. Grafana queries Loki for exploration and dashboards.
 
 Rules:
 - Do not push logs directly from business code to Loki by default.
-- Prefer stdout plus Promtail because it is simpler, local-friendly, and easier to debug.
+- Prefer stdout plus Alloy because it is simpler, local-friendly, and easier to debug.
 - Make sure logs include the fields needed for filtering, especially `request_id`, `phase`, and `status`.
 
 Recommended Loki query examples for later documentation:
@@ -371,7 +371,7 @@ Forbidden high-cardinality metric labels:
 When the observability stack is implemented, validate it with these checks:
 - Grafana can connect to Prometheus and Loki.
 - Prometheus can scrape the backend `/metrics` endpoint.
-- Loki receives structured logs from backend containers through Promtail.
+- Loki receives structured logs from backend containers through Alloy.
 - MLflow shows traces for one sample request.
 - One test incident produces correlated logs, metrics, and traces.
 - Token usage is visible by phase.

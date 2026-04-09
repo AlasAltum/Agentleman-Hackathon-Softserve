@@ -189,7 +189,7 @@ def _notify_team(ticket: TicketInfo, triage: TriageResult, request_id: str = "un
         ticket_id=ticket.ticket_id,
         severity=triage.severity,
     )
-    _send_slack_notification(ticket, triage, request_id)
+    # TODO: [Alonso] Aquí voy a agregar la notificación en ZAVU
     _send_team_email(ticket, triage, request_id)
 
 

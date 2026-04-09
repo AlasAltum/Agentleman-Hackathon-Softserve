@@ -366,3 +366,5 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+backend/src/services/notification-zavu/.agents/skills
+backend/src/services/notification-zavu/skills-lock.json
