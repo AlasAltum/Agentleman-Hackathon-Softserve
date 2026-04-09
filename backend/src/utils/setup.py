@@ -71,6 +71,22 @@ def setup_defaults() -> None:
     else:
         _setup_llm(llm_provider)
         _setup_embeddings(embed_provider)
+    
+    _setup_mlflow_callbacks()
+
+
+def _setup_mlflow_callbacks() -> None:
+    """Setup MLflow callback manager for LlamaIndex tracing."""
+    mlflow_autolog = os.getenv("MLFLOW_AUTOLOG_ENABLED", "true").lower() == "true"
+    
+    if mlflow_autolog:
+        try:
+            from src.utils.llama_index_mlflow import configure_mlflow_tracing
+            configure_mlflow_tracing()
+        except ImportError:
+            pass
+        except Exception:
+            pass
 
 
 def _setup_mock_settings() -> None:
@@ -95,7 +111,7 @@ def _setup_llm(provider: str) -> None:
     model = os.getenv("LLM_MODEL")
     base_url = os.getenv("LLM_BASE_URL")
     
-    if provider == "gemini":
+    if provider in ("gemini", "google"):
         _setup_gemini_llm(api_key, model)
     elif provider == "openrouter":
         _setup_openrouter_llm(api_key, model, base_url)
@@ -216,7 +232,7 @@ def _setup_embeddings(provider: str) -> None:
     )
     model = os.getenv("EMBED_MODEL")
     
-    if provider == "gemini":
+    if provider in ("gemini", "google"):
         _setup_gemini_embeddings(api_key, model)
     elif provider == "openai":
         _setup_openai_embeddings(api_key, model)
