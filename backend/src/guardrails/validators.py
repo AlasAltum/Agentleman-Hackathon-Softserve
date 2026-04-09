@@ -75,10 +75,6 @@ class ContentTypeGuardrail(BaseGuardrail):
             "application/json",
             "text/csv",
             "application/csv",
-            # Infra / config (usually sent as text/plain by browsers, listed for explicit uploads)
-            "text/yaml",
-            "application/yaml",
-            "application/x-yaml",
             # Images
             "image/png",
             "image/jpeg",

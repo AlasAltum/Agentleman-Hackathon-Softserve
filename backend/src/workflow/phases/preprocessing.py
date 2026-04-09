@@ -4,16 +4,14 @@ import csv
 import io
 import json
 import os
-import re
 
 from src.utils.logger import logger
 from src.workflow.models import FileMetadata, IncidentInput, PreprocessedIncident
 
-# Extension sets for routing when MIME type is ambiguous (e.g. text/plain for .tf and .yaml)
+# Extension sets for routing when MIME type is ambiguous
 _JSON_EXTENSIONS = {".json"}
 _CSV_EXTENSIONS = {".csv"}
-_YAML_EXTENSIONS = {".yaml", ".yml"}
-_TERRAFORM_EXTENSIONS = {".tf", ".tfvars"}
+_BLOCKED_EXTENSIONS = {".tf", ".tfvars", ".yaml", ".yml"}
 
 _CSV_MAX_ROWS = 100
 
@@ -23,19 +21,25 @@ _OCR_PROMPT = (
     "to an SRE incident. If no text is present, describe the technical content shown."
 )
 
-_HCL_BLOCK_TYPES_RE = re.compile(
-    r"^(resource|module|data|provider|variable|output|locals|terraform)\b",
-    re.MULTILINE,
-)
-
 
 async def preprocess_incident(incident: IncidentInput) -> PreprocessedIncident:
-    """Route file by MIME type / extension, extract content, consolidate into clean string."""
-    file_metadata = await _extract_file_content(
-        incident.file_content,
-        incident.file_mime_type,
-        incident.file_name,
-    )
+    """Route files by MIME type / extension, extract content, consolidate into clean string."""
+    extracted_texts: list[str] = []
+    mime_types: list[str] = []
+
+    for content, mime_type, file_name in zip(
+        incident.file_contents, incident.file_mime_types, incident.file_names
+    ):
+        ext = _file_extension(file_name)
+        if ext in _BLOCKED_EXTENSIONS:
+            logger.warning("blocked_file_extension", file_name=file_name, ext=ext)
+            raise ValueError(f"File type not allowed: {ext}")
+
+        file_metadata = await _extract_file_content(content, mime_type, file_name)
+        extracted_texts.append(file_metadata.extracted_text)
+        mime_types.append(mime_type)
+
+    file_metadata = FileMetadata(mime_types=mime_types, extracted_text="\n\n".join(extracted_texts))
     consolidated_text = _consolidate_text(incident.text_desc, file_metadata.extracted_text)
     return PreprocessedIncident(
         original=incident,
@@ -45,21 +49,13 @@ async def preprocess_incident(incident: IncidentInput) -> PreprocessedIncident:
 
 
 async def _extract_file_content(
-    file_content: bytes | None,
-    mime_type: str | None,
-    file_name: str | None,
+    file_content: bytes,
+    mime_type: str,
+    file_name: str,
 ) -> FileMetadata:
-    if file_content is None:
-        return FileMetadata()
-
     ext = _file_extension(file_name)
 
-    # Extension takes precedence for ambiguous text/plain files (.tf, .yaml sent as text/plain)
-    if ext in _TERRAFORM_EXTENSIONS:
-        extracted = _extract_terraform(file_content)
-    elif ext in _YAML_EXTENSIONS or mime_type in ("text/yaml", "application/yaml", "application/x-yaml"):
-        extracted = _extract_yaml(file_content)
-    elif ext in _JSON_EXTENSIONS or mime_type == "application/json":
+    if ext in _JSON_EXTENSIONS or mime_type == "application/json":
         extracted = _extract_json(file_content)
     elif ext in _CSV_EXTENSIONS or mime_type in ("text/csv", "application/csv"):
         extracted = _extract_csv(file_content)
@@ -71,7 +67,7 @@ async def _extract_file_content(
         extracted = ""
         logger.warning("unsupported_mime_type", mime_type=mime_type)
 
-    return FileMetadata(mime_type=mime_type, extracted_text=extracted)
+    return FileMetadata(mime_types=[mime_type], extracted_text=extracted)
 
 
 def _file_extension(file_name: str | None) -> str:
@@ -113,33 +109,6 @@ def _extract_csv(content: bytes) -> str:
     except Exception as exc:
         logger.warning("csv_parse_error", error=str(exc))
         return content.decode("utf-8", errors="replace")
-
-
-# ── YAML ─────────────────────────────────────────────────────────────────────
-
-def _extract_yaml(content: bytes) -> str:
-    try:
-        import yaml  # PyYAML — available as transitive dependency of llama-index
-
-        data = yaml.safe_load(content.decode("utf-8", errors="replace"))
-        return yaml.dump(data, default_flow_style=False, allow_unicode=True)
-    except ImportError:
-        logger.warning("pyyaml_not_installed")
-        return content.decode("utf-8", errors="replace")
-    except Exception as exc:
-        logger.warning("yaml_parse_error", error=str(exc))
-        return content.decode("utf-8", errors="replace")
-
-
-# ── Terraform / HCL ──────────────────────────────────────────────────────────
-
-def _extract_terraform(content: bytes) -> str:
-    text = content.decode("utf-8", errors="replace")
-    block_types = set(_HCL_BLOCK_TYPES_RE.findall(text))
-    if block_types:
-        summary = f"[Terraform config — block types: {', '.join(sorted(block_types))}]\n\n"
-        return summary + text
-    return text
 
 
 # ── Image OCR (Gemini multimodal) ─────────────────────────────────────────────
