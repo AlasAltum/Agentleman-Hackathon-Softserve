@@ -99,7 +99,7 @@ services:
       - MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts
       - MLFLOW_SERVE_ARTIFACTS=true
     ports:
-      - "5000:5000"
+      - "5001:5000"
     volumes:
       - mlflow_data:/mlflow
     healthcheck:

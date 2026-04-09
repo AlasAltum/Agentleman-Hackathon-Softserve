@@ -6,6 +6,8 @@ include:
     project_directory: backend
   - path: observability/docker-compose.yml
     project_directory: observability
+  - path: sre-platform/docker-compose.yml
+    project_directory: sre-platform
 
 # Root-level overrides can still be added here if needed.
 services: {}

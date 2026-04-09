@@ -1,0 +1,18 @@
+services:
+  sre-api:
+    build: ./api
+    env_file: ./api/.env
+    ports:
+      - "8002:8000"
+
+  sre-web:
+    build:
+      context: ./web
+      target: dev
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    ports:
+      - "8003:5173"
+    depends_on:
+      - sre-api
