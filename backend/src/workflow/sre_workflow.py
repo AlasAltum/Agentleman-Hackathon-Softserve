@@ -1,6 +1,6 @@
 from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
 
-from src.utils.logger import logger
+from src.utils.logger import logger, log_phase_start, log_phase_success, log_phase_failure
 from src.workflow.events import (
     ContextEnrichedEvent,
     ToolCallEvent,
@@ -50,7 +50,9 @@ class SREIncidentWorkflow(Workflow):
         self, ctx: Context, ev: StartEvent
     ) -> ContextEnrichedEvent:
         preprocessed: PreprocessedIncident = ev.preprocessed
-        logger.info("[classification] Retrieving and reranking historical candidates")
+        
+        request_id = preprocessed.request_id or "unknown"
+        log_phase_start("classify", component="workflow", request_id=request_id)
         
         candidates = _retrieve_candidates(preprocessed)
         reranked = _rerank_candidates(candidates)
@@ -58,8 +60,9 @@ class SREIncidentWorkflow(Workflow):
         
         await ctx.store.set("iteration", 0)
         await ctx.store.set("accumulated_results", [])
+        await ctx.store.set("request_id", request_id)
         
-        logger.info("[classification] Classified as %s", classification.incident_type)
+        log_phase_success("classify", latency_ms=0, incident_type=classification.incident_type, request_id=request_id)
         return ContextEnrichedEvent(
             preprocessed=preprocessed, 
             classification=classification
@@ -69,7 +72,8 @@ class SREIncidentWorkflow(Workflow):
     async def router(
         self, ctx: Context, ev: ContextEnrichedEvent | ToolResultEvent
     ) -> ToolCallEvent | TriageCompleteEvent:
-        logger.info("[router] Evaluating context and deciding next tools")
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("router", component="workflow", request_id=request_id)
         
         preprocessed = ev.preprocessed
         classification = ev.classification
@@ -84,23 +88,23 @@ class SREIncidentWorkflow(Workflow):
             iteration = ev.iteration
             await ctx.store.set("iteration", iteration)
             await ctx.store.set("accumulated_results", accumulated_results)
-            logger.info("[router] Iteration %d with %d accumulated results", iteration, len(accumulated_results))
+            logger.info("router_iteration", iteration=iteration, results_count=len(accumulated_results), request_id=request_id)
         
         max_iterations: int = await ctx.store.get("max_iterations", default=3)
         
         if iteration >= max_iterations:
-            logger.info("[router] Max iterations reached, proceeding to ticketing")
+            logger.info("max_iterations_reached", phase="router", request_id=request_id)
             triage = _consolidate_triage(preprocessed, classification, accumulated_results)
             return TriageCompleteEvent(preprocessed=preprocessed, triage=triage)
         
         selected_tools = _select_tools(preprocessed, classification, accumulated_results)
         
         if not selected_tools:
-            logger.info("[router] No more tools to dispatch, proceeding to ticketing")
+            logger.info("no_tools_to_dispatch", phase="router", request_id=request_id)
             triage = _consolidate_triage(preprocessed, classification, accumulated_results)
             return TriageCompleteEvent(preprocessed=preprocessed, triage=triage)
         
-        logger.info("[router] Dispatching tools: %s", selected_tools)
+        log_phase_success("router", latency_ms=0, tools=selected_tools, request_id=request_id)
         return ToolCallEvent(
             preprocessed=preprocessed,
             classification=classification,
@@ -113,13 +117,14 @@ class SREIncidentWorkflow(Workflow):
     async def dispatch_tools(
         self, ctx: Context, ev: ToolCallEvent
     ) -> ToolResultEvent:
-        logger.info("[dispatch] Executing tools: %s", ev.tools_to_dispatch)
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("dispatch_tools", component="workflow", tools=ev.tools_to_dispatch, request_id=request_id)
         
         new_results = await _dispatch_tools(ev.tools_to_dispatch, ev.preprocessed)
         
         all_results = list(ev.previous_results) + list(new_results)
         
-        logger.info("[dispatch] Tools completed: %d total results", len(all_results))
+        log_phase_success("dispatch_tools", latency_ms=0, total_results=len(all_results), request_id=request_id)
         
         return ToolResultEvent(
             preprocessed=ev.preprocessed,
@@ -132,12 +137,10 @@ class SREIncidentWorkflow(Workflow):
     async def process_results(
         self, ctx: Context, ev: ToolResultEvent
     ) -> ToolResultEvent:
-        logger.info("[process_results] Consolidating tool results")
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("process_results", component="workflow", request_id=request_id)
         
-        logger.info(
-            "[process_results] Processed %d tool results, returning to router",
-            len(ev.tool_results)
-        )
+        log_phase_success("process_results", latency_ms=0, results_count=len(ev.tool_results), request_id=request_id)
         
         return ToolResultEvent(
             preprocessed=ev.preprocessed,
@@ -150,13 +153,10 @@ class SREIncidentWorkflow(Workflow):
     async def create_ticket_and_notify(
         self, ctx: Context, ev: TriageCompleteEvent
     ) -> StopEvent:
-        logger.info("[ticketing] Creating ticket and alerting team")
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("ticketing", component="workflow", request_id=request_id)
         reporter_email = ev.preprocessed.original.reporter_email
         ticket = _create_or_update_ticket(ev.triage, reporter_email, ev.preprocessed)
         _notify_team(ticket, ev.triage)
-        logger.info(
-            "[ticketing] Done — ticket=%s action=%s",
-            ticket.ticket_id,
-            ticket.action,
-        )
+        log_phase_success("ticketing", latency_ms=0, ticket_id=ticket.ticket_id, action=ticket.action, request_id=request_id)
         return StopEvent(result=ticket)
