@@ -36,7 +36,7 @@ def test_notify_team_also_sends_reporter_email(monkeypatch):
     )
     triage = _triage_result()
 
-    ticketing._notify_team(ticket, triage, request_id="req-123")
+    ticketing.notify_team(ticket, triage, request_id="req-123")
 
     fake_bridge.notify_team.assert_called_once_with(ticket, triage, request_id="req-123")
     fake_bridge.notify_reporter_ticket_created.assert_called_once_with(
@@ -67,7 +67,7 @@ def test_notify_team_routes_resolution_notifications_through_bridge(monkeypatch)
         request_id="req-901",
     )
 
-    ticketing._notify_team(request_id="fallback-id", resolution_payload=payload)
+    ticketing.notify_team(request_id="fallback-id", resolution_payload=payload)
 
     fake_bridge.notify_reporter_resolution.assert_called_once_with(
         "reporter@example.com",

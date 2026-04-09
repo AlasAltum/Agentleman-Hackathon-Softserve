@@ -191,14 +191,15 @@ async def _create_new_ticket(
 
 
 
-def _notify_team(
+def notify_team(
     ticket: TicketInfo | None = None,
     triage: TriageResult | None = None,
     request_id: str = "unknown",
     *,
     resolution_payload: ResolutionPayload | None = None,
 ) -> None:
-    """Dispatch notification fan-out for ticket creation and resolution events."""
+    """Dispatch notification fan-out for ticket creation and resolution events to the 
+    engineering team."""
     if resolution_payload is not None:
         active_request_id = resolution_payload.request_id or request_id
         logger.info(
@@ -225,18 +226,6 @@ def _notify_team(
 
 def _load_notification_bridge():
     return importlib.import_module(_NOTIFICATION_BRIDGE_MODULE)
-
-
-def _send_slack_notification(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
-    """Stub: send Slack message to SRE channel until Slack integration is wired."""
-    logger.info(
-        "slack_notification",
-        request_id=request_id,
-        channel="#sre-alerts",
-        ticket_id=ticket.ticket_id,
-        severity=triage.severity,
-    )
-
 
 def _send_team_notifications(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
     try:

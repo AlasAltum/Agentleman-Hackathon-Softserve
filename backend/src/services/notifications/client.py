@@ -217,9 +217,7 @@ def _optional_env(name: str) -> str | None:
 def _csv_env(name: str) -> tuple[str, ...]:
     raw = os.getenv(name, "")
     return tuple(
-        cleaned
-        for item in raw.split(",")
-        if (cleaned := _strip_wrapping_quotes(item.strip()))
+        cleaned for item in raw.split(",") if (cleaned := _strip_wrapping_quotes(item.strip()))
     )
 
 
