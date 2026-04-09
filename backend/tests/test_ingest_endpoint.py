@@ -58,11 +58,10 @@ class TestIngestEndpointBasic:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 202
             result = response.json()
-            assert result["status"] == "triaged"
-            assert result["ticket_id"] == "SRE-001"
-            assert "ticket_url" in result
+            assert result["status"] == "accepted"
+            assert "request_id" in result
 
     @pytest.mark.asyncio
     async def test_ingest_with_single_text_file(self, async_client):
@@ -79,8 +78,8 @@ class TestIngestEndpointBasic:
                 files=[("file_attachments", ("error.log", BytesIO(log_content), "text/plain"))],
             )
 
-            assert response.status_code == 200
-            assert response.json()["ticket_id"] == "SRE-002"
+            assert response.status_code == 202
+            assert response.json()["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_ingest_with_image_file(self, async_client):
@@ -99,8 +98,8 @@ class TestIngestEndpointBasic:
                     files=[("file_attachments", ("screenshot.png", BytesIO(fake_image), "image/png"))],
                 )
 
-            assert response.status_code == 200
-            assert response.json()["status"] == "triaged"
+            assert response.status_code == 202
+            assert response.json()["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_ingest_missing_required_fields(self, async_client):
@@ -323,8 +322,8 @@ class TestIngestMultipleFiles:
                 ],
             )
 
-        assert response.status_code == 200
-        assert response.json()["ticket_id"] == "SRE-MULTI-01"
+        assert response.status_code == 202
+        assert response.json()["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_ingest_five_files(self, async_client):
@@ -345,8 +344,8 @@ class TestIngestMultipleFiles:
                 files=files,
             )
 
-        assert response.status_code == 200
-        assert response.json()["ticket_id"] == "SRE-MULTI-02"
+        assert response.status_code == 202
+        assert response.json()["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_ingest_six_files_rejected(self, async_client):
@@ -389,7 +388,7 @@ class TestIngestMultipleFiles:
                 ],
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_ingest_one_bad_mime_among_multiple_rejected(self, async_client):
@@ -440,7 +439,7 @@ class TestIngestMultipleFiles:
                     ],
                 )
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         mock_preprocess.assert_called_once()
         incident_input = mock_preprocess.call_args[0][0]
         assert len(incident_input.file_contents) == 2
@@ -517,7 +516,7 @@ class TestIngestGuardrailsExtended:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_suspicious_input_proceeds_with_200(self, async_client):
+    async def test_suspicious_input_proceeds_with_202(self, async_client):
         """SUSPICIOUS patterns (e.g. template syntax) should flag but NOT hard-block."""
         with patch("src.api.routes.incident_routes.SREIncidentWorkflow") as MockWorkflow:
             MockWorkflow.return_value = _mock_workflow("SRE-SUSP-01")
@@ -528,7 +527,7 @@ class TestIngestGuardrailsExtended:
                     "reporter_email": "user@company.com",
                 },
             )
-        assert response.status_code == 200
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_blocks_prompt_injection_disregard(self, async_client):
@@ -573,8 +572,8 @@ class TestIngestMultipartFiles:
                 data={"text_desc": "API gateway returning 502s", "reporter_email": "sre@company.com"},
                 files=[("file_attachments", ("metrics.json", BytesIO(json.dumps(payload).encode()), "application/json"))],
             )
-        assert response.status_code == 200
-        assert response.json()["ticket_id"] == "SRE-JSON-01"
+        assert response.status_code == 202
+        assert response.json()["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_csv_file_attachment(self, async_client):
@@ -586,8 +585,8 @@ class TestIngestMultipartFiles:
                 data={"text_desc": "Auth service latency spike", "reporter_email": "sre@company.com"},
                 files=[("file_attachments", ("latency.csv", BytesIO(csv_content), "text/csv"))],
             )
-        assert response.status_code == 200
-        assert response.json()["ticket_id"] == "SRE-CSV-01"
+        assert response.status_code == 202
+        assert response.json()["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_yaml_file_rejected(self, async_client):
@@ -655,7 +654,7 @@ class TestIngestMultipartFiles:
                     data={"text_desc": "Dashboard screenshot showing 100% CPU", "reporter_email": "sre@company.com"},
                     files=[("file_attachments", ("dashboard.jpg", BytesIO(fake_jpeg), "image/jpeg"))],
                 )
-        assert response.status_code == 200
+        assert response.status_code == 202
         mock_ocr.assert_called_once()
 
     @pytest.mark.asyncio
@@ -670,7 +669,7 @@ class TestIngestMultipartFiles:
                     data={"text_desc": "Alert screenshot from monitoring", "reporter_email": "sre@company.com"},
                     files=[("file_attachments", ("alert.webp", BytesIO(fake_webp), "image/webp"))],
                 )
-        assert response.status_code == 200
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_gif_image_attachment(self, async_client):
@@ -684,7 +683,7 @@ class TestIngestMultipartFiles:
                     data={"text_desc": "Animated trace gif from profiler", "reporter_email": "sre@company.com"},
                     files=[("file_attachments", ("trace.gif", BytesIO(fake_gif), "image/gif"))],
                 )
-        assert response.status_code == 200
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_application_csv_mime_type(self, async_client):
@@ -697,7 +696,7 @@ class TestIngestMultipartFiles:
                 data={"text_desc": "Pod restart report", "reporter_email": "sre@company.com"},
                 files=[("file_attachments", ("pods.csv", BytesIO(csv_content), "application/csv"))],
             )
-        assert response.status_code == 200
+        assert response.status_code == 202
 
     @pytest.mark.asyncio
     async def test_application_json_mime_type(self, async_client):
@@ -709,7 +708,7 @@ class TestIngestMultipartFiles:
                 data={"text_desc": "OOM killer fired on prod-3", "reporter_email": "sre@company.com"},
                 files=[("file_attachments", ("alert.json", BytesIO(json.dumps(payload).encode()), "application/json"))],
             )
-        assert response.status_code == 200
+        assert response.status_code == 202
 
 
 # ──────────────────────────────────────────────────────────────────────────────

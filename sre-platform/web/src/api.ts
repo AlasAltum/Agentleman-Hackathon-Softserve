@@ -25,11 +25,22 @@ export async function login(username: string, password: string): Promise<string>
   return data.access_token;
 }
 
+export class ReportError extends Error {
+  status: number;
+  detail: string;
+
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 export async function submitReport(
   description: string,
   image: File,
   logs?: File | null,
-): Promise<{ ticket_id: string; ticket_url?: string; action?: string }> {
+): Promise<{ request_id: string; status: string; message?: string }> {
   const token = getToken();
   if (!token) handleUnauthorized();
 
@@ -45,6 +56,17 @@ export async function submitReport(
   });
 
   if (res.status === 401) handleUnauthorized();
-  if (!res.ok) throw new Error("Failed to submit report");
+
+  if (!res.ok) {
+    let detail = "Unexpected error";
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      /* response had no JSON body */
+    }
+    throw new ReportError(res.status, detail);
+  }
+
   return res.json();
 }
