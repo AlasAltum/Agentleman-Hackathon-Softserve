@@ -23,7 +23,7 @@ class RelevanceGuardrail:
         try:
             llm = get_settings()["llm"]
         except Exception as exc:
-            logger.warning("[guardrails] LLM unavailable, skipping relevance check: %s", exc)
+            logger.warning("llm_unavailable", error=str(exc))
             return _skipped_result()
 
         if llm is None or _is_mock_llm(llm):
@@ -35,7 +35,7 @@ class RelevanceGuardrail:
             answer = response.text.strip().upper()
 
             if answer.startswith("NO"):
-                logger.warning("[guardrails] Relevance check rejected input — not an SRE incident")
+                logger.warning("relevance_check_rejected", reason="not_sre_incident")
                 return GuardrailsResult(
                     is_safe=False,
                     threat_level=ThreatLevel.MALICIOUS,
@@ -43,9 +43,9 @@ class RelevanceGuardrail:
                     message="Input rejected: does not appear to be a valid SRE incident report.",
                 )
 
-            logger.info("[guardrails] Relevance check passed")
+            logger.info("relevance_check_passed")
         except Exception as exc:
-            logger.warning("[guardrails] Relevance check failed, allowing through: %s", exc)
+            logger.warning("relevance_check_failed", error=str(exc))
 
         return GuardrailsResult(
             is_safe=True,
