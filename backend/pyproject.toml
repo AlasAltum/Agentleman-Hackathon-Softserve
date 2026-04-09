@@ -26,6 +26,7 @@ dependencies = [
     "llama-index-embeddings-fastembed (>=0.6.0,<0.7.0)",
     "llama-index-postprocessor-cohere-rerank (>=0.3.0)",
     "psycopg2-binary (>=2.9.9,<3.0.0)",
+    "httpx (>=0.28.1,<0.29.0)",
 ]
 
 [project.optional-dependencies]
