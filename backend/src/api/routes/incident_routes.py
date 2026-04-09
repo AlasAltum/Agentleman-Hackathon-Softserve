@@ -97,6 +97,7 @@ async def on_ticket_resolved(payload: dict[str, Any]):
     issue_key = _extract_issue_key(payload)
     ignore_reason = _jira_resolution_ignore_reason(payload)
     if ignore_reason is not None:
+        # Ignore non-resolution and non-human Jira updates so only manual task resolution fans out downstream work.
         return {
             "status": "ignored",
             "reason": ignore_reason,
@@ -104,6 +105,7 @@ async def on_ticket_resolved(payload: dict[str, Any]):
         }
 
     resolution_payload = _build_resolution_payload(payload)
+    # The webhook arrives after Jira already resolved the issue, so we only trigger the local post-resolution flow here.
     handle_resolution(resolution_payload)
     return {"status": "resolution_processed", "ticket_id": resolution_payload.ticket_id}
 

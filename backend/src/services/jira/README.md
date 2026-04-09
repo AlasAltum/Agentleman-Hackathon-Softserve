@@ -17,8 +17,6 @@ The public flows are in `bridge.py`:
 from src.services.jira.bridge import create_ticket, resolve_ticket
 ```
 
-If you want to keep the current folder name strategy for the ZAVU service, the matching future workflow hook can use `importlib.import_module(...)` for both services.
-
 ### Environment Variables
 
 Required:
@@ -85,12 +83,6 @@ Backend endpoint:
 POST /api/webhook/jira/resolved
 ```
 
-The legacy alias below is still accepted for compatibility:
-
-```text
-POST /api/webhook/resolved
-```
-
 At runtime the webhook is projected into the internal `ResolutionPayload` and passed to the resolution phase. That resolution phase already contains the explicit `# TODO` marker where the notification service call should be wired.
 
 Example Jira webhook body shape used by the backend:
@@ -130,7 +122,8 @@ Example Jira webhook body shape used by the backend:
 
 The agent should call only the two public methods in `src.services.jira.bridge`.
 
-The only supported ticket update flow is `resolve_ticket(...)`, which transitions an existing Jira issue to its resolved state.
+The webhook below is different: Jira calls the HTTP endpoint, and the backend converts that incoming payload into the internal `ResolutionPayload` used by the resolution phase.
+
 
 #### 1. Create Ticket
 
@@ -241,6 +234,92 @@ JiraResolutionResult(
 ```
 
 If your Jira workflow uses a non-standard resolution transition name, set `JIRA_RESOLVED_TRANSITION_NAME` in the root `.env`.
+
+#### 3. Receive Jira Resolution Webhook
+
+HTTP contract:
+
+```text
+POST /api/webhook/jira/resolved
+```
+
+This is an inbound integration point. Jira should call this endpoint when a human transitions an issue into a resolved state. The backend then projects the webhook payload into the same `ResolutionPayload` model shown in the resolution flow.
+
+Required webhook inputs:
+
+- `webhookEvent`: should be `jira:issue_updated`
+- `user.accountType`: should be `atlassian` so the backend knows a human triggered the resolution
+- `user.displayName`: becomes `resolved_by` in the internal payload
+- `issue.key`: becomes `ticket_id`
+- `issue.fields.summary`: added to the generated `resolution_notes`
+- `issue.fields.status.name` or `issue.fields.status.statusCategory.key`: must indicate a resolved state such as `Done`
+- `changelog.items[]`: must contain an item whose `field` is `status`
+
+Minimal invocation:
+
+```bash
+curl -X POST http://localhost:8000/api/webhook/jira/resolved \
+	-H "Content-Type: application/json" \
+	-d '{
+		"webhookEvent": "jira:issue_updated",
+		"user": {
+			"displayName": "Jane Ops",
+			"accountType": "atlassian"
+		},
+		"issue": {
+			"key": "SRE-123",
+			"fields": {
+				"summary": "Checkout API returns 500 after payment confirmation",
+				"status": {
+					"name": "Done",
+					"statusCategory": {
+						"key": "done"
+					}
+				}
+			}
+		},
+		"changelog": {
+			"items": [
+				{
+					"field": "status",
+					"fromString": "In Progress",
+					"toString": "Done"
+				}
+			]
+		}
+	}'
+```
+
+Internal projected payload:
+
+```python
+ResolutionPayload(
+		ticket_id="SRE-123",
+		resolved_by="Jane Ops",
+		resolution_notes="Jira webhook status transition: In Progress -> Done. Issue summary: Checkout API returns 500 after payment confirmation",
+)
+```
+
+HTTP response when processed:
+
+```json
+{
+	"status": "resolution_processed",
+	"ticket_id": "SRE-123"
+}
+```
+
+HTTP response when ignored:
+
+```json
+{
+	"status": "ignored",
+	"reason": "non_human_actor",
+	"ticket_id": "SRE-123"
+}
+```
+
+The webhook route does not call `resolve_ticket(...)`. It runs after Jira has already moved the issue to a resolved state.
 
 ### Observability
 

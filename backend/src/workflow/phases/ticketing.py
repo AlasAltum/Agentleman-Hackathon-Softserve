@@ -44,37 +44,6 @@ def _create_new_ticket(
     )
 
 
-def _update_existing_ticket(
-    triage: TriageResult,
-    reporter_email: str,
-    preprocessed: Optional[PreprocessedIncident] = None,
-) -> TicketInfo:
-    """Add a comment to the existing ticket for an ongoing alert storm.
-
-    Stub: logs intent and returns mock update until Jira integration is wired.
-    """
-    existing_id = (
-        triage.classification.top_candidates[0].incident_id
-        if triage.classification.top_candidates
-        else "SRE-UNKNOWN"
-    )
-    logger.info("[ticketing] Updating ticket %s (alert storm deduplication)", existing_id)
-
-    if preprocessed and preprocessed.security_flag:
-        logger.warning(
-            "[ticketing] ⚠ Ticket %s updated from flagged input (security_flag=%s) — review recommended",
-            existing_id,
-            preprocessed.security_flag,
-        )
-    # TODO: call Jira API — add comment and increase urgency
-    return TicketInfo(
-        ticket_id=existing_id,
-        ticket_url=f"https://jira.example.com/browse/{existing_id}",
-        action="updated",
-        reporter_email=reporter_email,
-    )
-
-
 def _notify_team(ticket: TicketInfo, triage: TriageResult) -> None:
     """Notify technical team via Slack and Email."""
     logger.info(
@@ -82,6 +51,7 @@ def _notify_team(ticket: TicketInfo, triage: TriageResult) -> None:
         ticket.ticket_id,
         triage.severity,
     )
+    # TODO: [Alonso] Aquí voy a agregar la notificación en ZAVU
     _send_slack_notification(ticket, triage)
     _send_team_email(ticket, triage)
 
