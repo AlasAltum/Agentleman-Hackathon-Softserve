@@ -7,6 +7,8 @@ include:
     env_file: ./.env
   - path: observability/docker-compose.yml
     project_directory: observability
+  - path: sre-platform/docker-compose.yml
+    project_directory: sre-platform
     env_file: ./.env
   - path: ecommerce-platform/docker-compose.yml
     project_directory: ecommerce-platform

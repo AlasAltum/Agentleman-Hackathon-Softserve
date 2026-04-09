@@ -1,0 +1,21 @@
+services:
+  sre-api:
+    build: ./api
+    environment:
+      JWT_SECRET: ${SRE_JWT_SECRET}
+      JWT_EXPIRE_MINUTES: ${SRE_JWT_EXPIRE_MINUTES}
+      BACKEND_URL: ${SRE_BACKEND_URL}
+    ports:
+      - "8002:8000"
+
+  sre-web:
+    build:
+      context: ./web
+      target: dev
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    ports:
+      - "8003:5173"
+    depends_on:
+      - sre-api
