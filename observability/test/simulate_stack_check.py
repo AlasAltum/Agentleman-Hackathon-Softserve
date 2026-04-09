@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--log-file",
-        default="observability/test/logs/simulate_stack_check.log",
+        default="logs/simulate_stack_check.log",
         help="UTF-8 log file path scraped by Promtail.",
     )
     parser.add_argument(

@@ -24,7 +24,7 @@ services:
       - -c
       - |
         set -eu
-        sed "s#__OBSERVABILITY_METRICS_TARGET__#${OBSERVABILITY_METRICS_TARGET:-host.docker.internal:9464}#g" \
+        sed "s#__OBSERVABILITY_METRICS_TARGET__#${OBSERVABILITY_METRICS_TARGET:-observability-test-runner:9464}#g" \
           /etc/prometheus/prometheus.yml.tmpl > /tmp/prometheus.yml
         exec /bin/prometheus \
           --config.file=/tmp/prometheus.yml \
@@ -64,6 +64,25 @@ services:
     networks:
       - observability
     # Local smoke-test logs are scraped from /var/observability/test/logs.
+
+  observability-test-runner:
+    build:
+      context: ./test
+      dockerfile: Dockerfile
+    profiles:
+      - test
+    command:
+      - sleep
+      - infinity
+    working_dir: /workspace/observability/test
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-observability-local}
+      POETRY_VIRTUALENVS_CREATE: "false"
+    volumes:
+      - ..:/workspace
+    networks:
+      - observability
 
   mlflow:
     build:
