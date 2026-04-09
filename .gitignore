@@ -20,7 +20,7 @@ downloads/
 eggs/
 .eggs/
 lib/
-!ecommerce-platform-frontend/src/lib/
+!ecommerce-platform/web/src/lib/
 lib64/
 parts/
 sdist/
