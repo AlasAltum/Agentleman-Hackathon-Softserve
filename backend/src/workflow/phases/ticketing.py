@@ -84,15 +84,14 @@ def _create_new_ticket(
     )
 
 
-
 def _notify_team(ticket: TicketInfo, triage: TriageResult) -> None:
-    """Notify technical team via Slack and Email."""
+    """Notify technical team via Email and other notification channels."""
     logger.info(
         "team_notification",
         ticket_id=ticket.ticket_id,
         severity=triage.severity,
     )
-    _send_slack_notification(ticket, triage)
+    # TODO: [Alonso] Aquí voy a agregar la notificación en ZAVU
     _send_team_email(ticket, triage)
 
 

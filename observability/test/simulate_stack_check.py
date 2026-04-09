@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--log-file",
         default="logs/simulate_stack_check.log",
-        help="UTF-8 log file path scraped by Promtail.",
+        help="UTF-8 log file path scraped by Alloy.",
     )
     parser.add_argument(
         "--metrics-port",
