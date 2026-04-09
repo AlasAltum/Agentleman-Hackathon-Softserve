@@ -45,6 +45,9 @@ _SEVERITY_MAP: dict[str, Severity] = {
 # ── Public entry point ────────────────────────────────────────────────────────
 
 
+TOOL_TIMEOUT = 90.0  # seconds — must stay well below the workflow-level timeout
+
+
 async def analyze_codebase(incident_text: str) -> ToolResult:
     """Scan e-commerce codebase for errors, regressions, or relevant code paths.
 
@@ -53,7 +56,21 @@ async def analyze_codebase(incident_text: str) -> ToolResult:
     """
     logger.info("tool_execution", tool="codebase_analyzer", status="started")
     try:
-        return await _run_agentic_analysis(incident_text)
+        return await asyncio.wait_for(
+            _run_agentic_analysis(incident_text), timeout=TOOL_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "tool_execution",
+            tool="codebase_analyzer",
+            status="timeout",
+            timeout_s=TOOL_TIMEOUT,
+        )
+        return ToolResult(
+            tool_name="codebase_analyzer",
+            findings="Codebase analysis timed out — no findings within the time budget.",
+            severity_hint=None,
+        )
     except Exception as exc:
         logger.error(
             "tool_execution",
@@ -244,6 +261,7 @@ Rules:
 - Max {max_cmds} commands per response
 - Use grep -rn for content search, find for file discovery, cat/head to read files
 - Set done=true only when you have enough evidence to diagnose the root cause
+- IMPORTANT: Use ONLY relative paths from ecommerce-platform/. Never use absolute paths like /app/... or /home/... even if they appear in the incident report — those are production container paths, not local paths.
 """
 
 _ITER_PROMPT = """\
@@ -261,6 +279,7 @@ Respond ONLY with valid JSON (no markdown fences):
 Set done=true if you have enough evidence to diagnose the root cause.
 Allowed commands: grep, find, head, cat, ls
 Max {max_cmds} commands.
+IMPORTANT: Use ONLY relative paths from ecommerce-platform/. Never use absolute paths like /app/... even if they appear in the incident — those are production container paths.
 """
 
 _FINAL_PROMPT = """\
