@@ -69,7 +69,7 @@ async def _extract_file_content(
         extracted = _extract_text_log(file_content)
     else:
         extracted = ""
-        logger.warning("[preprocessing] Unsupported MIME type: %s — content skipped", mime_type)
+        logger.warning("unsupported_mime_type", mime_type=mime_type)
 
     return FileMetadata(mime_type=mime_type, extracted_text=extracted)
 
@@ -93,7 +93,7 @@ def _extract_json(content: bytes) -> str:
         data = json.loads(content.decode("utf-8", errors="replace"))
         return json.dumps(data, indent=2, ensure_ascii=False)
     except json.JSONDecodeError as exc:
-        logger.warning("[preprocessing] JSON parse error: %s — treating as plain text", exc)
+        logger.warning("json_parse_error", error=str(exc))
         return content.decode("utf-8", errors="replace")
 
 
@@ -111,7 +111,7 @@ def _extract_csv(content: bytes) -> str:
             lines.append(", ".join(f"{k}={v}" for k, v in row.items()))
         return f"CSV ({len(lines)} rows):\n" + "\n".join(lines)
     except Exception as exc:
-        logger.warning("[preprocessing] CSV parse error: %s — treating as plain text", exc)
+        logger.warning("csv_parse_error", error=str(exc))
         return content.decode("utf-8", errors="replace")
 
 
@@ -124,10 +124,10 @@ def _extract_yaml(content: bytes) -> str:
         data = yaml.safe_load(content.decode("utf-8", errors="replace"))
         return yaml.dump(data, default_flow_style=False, allow_unicode=True)
     except ImportError:
-        logger.warning("[preprocessing] PyYAML not installed — treating YAML as plain text")
+        logger.warning("pyyaml_not_installed")
         return content.decode("utf-8", errors="replace")
     except Exception as exc:
-        logger.warning("[preprocessing] YAML parse error: %s — treating as plain text", exc)
+        logger.warning("yaml_parse_error", error=str(exc))
         return content.decode("utf-8", errors="replace")
 
 
@@ -152,7 +152,7 @@ async def _extract_image_ocr(content: bytes, mime_type: str) -> str:
     )
 
     if not api_key:
-        logger.warning("[preprocessing] No Gemini API key configured — OCR skipped")
+        logger.warning("no_api_key_configured", integration="gemini_ocr")
         return "[image attached — OCR requires GOOGLE_API_KEY or GEMINI_API_KEY]"
 
     try:
@@ -168,14 +168,14 @@ async def _extract_image_ocr(content: bytes, mime_type: str) -> str:
             [_OCR_PROMPT, image_part],
         )
         extracted = response.text.strip()
-        logger.info("[preprocessing] OCR extracted %d chars from image", len(extracted))
+        logger.info("ocr_extraction_complete", characters=len(extracted))
         return extracted
 
     except ImportError:
-        logger.warning("[preprocessing] google-generativeai not installed — OCR skipped")
+        logger.warning("google_generativeai_not_installed")
         return "[image attached — install google-generativeai for OCR support]"
     except Exception as exc:
-        logger.warning("[preprocessing] OCR failed: %s", exc)
+        logger.warning("ocr_failed", error=str(exc))
         return "[image attached — OCR extraction failed]"
 
 

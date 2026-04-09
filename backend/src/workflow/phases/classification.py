@@ -19,7 +19,7 @@ def _retrieve_candidates(preprocessed: PreprocessedIncident) -> list[HistoricalC
 
     Stub: returns empty list until Qdrant integration is wired.
     """
-    logger.info("[classification] Vector DB retrieval (stub — Qdrant integration pending)")
+    logger.info("vector_db_retrieval", status="stub", integration="qdrant")
     return []
 
 
@@ -47,13 +47,13 @@ def _classify_incident(candidates: list[HistoricalCandidate]) -> ClassificationR
 
     age_hours = _hours_since(top.timestamp)
     if age_hours <= _ALERT_STORM_HOURS:
-        logger.info("[classification] Alert storm — top candidate age=%.1fh", age_hours)
+        logger.info("alert_storm_detected", top_candidate_age_hours=age_hours)
         return ClassificationResult(
             incident_type=IncidentType.ALERT_STORM,
             top_candidates=candidates,
         )
 
-    logger.info("[classification] Historical regression — top candidate age=%.1fh", age_hours)
+    logger.info("historical_regression_detected", top_candidate_age_hours=age_hours)
     return ClassificationResult(
         incident_type=IncidentType.HISTORICAL_REGRESSION,
         top_candidates=candidates,

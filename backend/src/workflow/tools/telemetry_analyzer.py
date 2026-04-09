@@ -7,7 +7,7 @@ async def analyze_telemetry(incident_text: str) -> ToolResult:
 
     Stub: returns placeholder until observability platform integration is wired.
     """
-    logger.info("[tool/telemetry_analyzer] Analyzing telemetry (stub)")
+    logger.info("tool_execution", tool="telemetry_analyzer", status="stub")
     return ToolResult(
         tool_name="telemetry_analyzer",
         findings="Telemetry analysis pending integration with observability platform.",

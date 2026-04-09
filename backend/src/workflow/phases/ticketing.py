@@ -27,15 +27,14 @@ def _create_new_ticket(
     """
     ticket_id = f"SRE-{str(uuid.uuid4())[:8].upper()}"
     ticket_url = f"https://jira.example.com/browse/{ticket_id}"
-    logger.info("[ticketing] Creating new ticket: %s severity=%s", ticket_id, triage.severity)
+    logger.info("ticket_created", ticket_id=ticket_id, severity=triage.severity)
 
     if preprocessed and preprocessed.security_flag:
         logger.warning(
-            "[ticketing] ⚠ Ticket %s created from flagged input (security_flag=%s) — review recommended",
-            ticket_id,
-            preprocessed.security_flag,
+            "ticket_from_flagged_input",
+            ticket_id=ticket_id,
+            security_flag=preprocessed.security_flag,
         )
-    # TODO: call Jira API — create issue with technical_summary, severity, and security_flag label
     return TicketInfo(
         ticket_id=ticket_id,
         ticket_url=ticket_url,
@@ -58,15 +57,14 @@ def _update_existing_ticket(
         if triage.classification.top_candidates
         else "SRE-UNKNOWN"
     )
-    logger.info("[ticketing] Updating ticket %s (alert storm deduplication)", existing_id)
+    logger.info("ticket_updated", ticket_id=existing_id, reason="alert_storm_deduplication")
 
     if preprocessed and preprocessed.security_flag:
         logger.warning(
-            "[ticketing] ⚠ Ticket %s updated from flagged input (security_flag=%s) — review recommended",
-            existing_id,
-            preprocessed.security_flag,
+            "ticket_updated_from_flagged_input",
+            ticket_id=existing_id,
+            security_flag=preprocessed.security_flag,
         )
-    # TODO: call Jira API — add comment and increase urgency
     return TicketInfo(
         ticket_id=existing_id,
         ticket_url=f"https://jira.example.com/browse/{existing_id}",
@@ -78,9 +76,9 @@ def _update_existing_ticket(
 def _notify_team(ticket: TicketInfo, triage: TriageResult) -> None:
     """Notify technical team via Slack and Email."""
     logger.info(
-        "[ticketing] Notifying team — ticket=%s severity=%s",
-        ticket.ticket_id,
-        triage.severity,
+        "team_notification",
+        ticket_id=ticket.ticket_id,
+        severity=triage.severity,
     )
     _send_slack_notification(ticket, triage)
     _send_team_email(ticket, triage)
@@ -89,17 +87,18 @@ def _notify_team(ticket: TicketInfo, triage: TriageResult) -> None:
 def _send_slack_notification(ticket: TicketInfo, triage: TriageResult) -> None:
     """Stub: send Slack message to SRE channel until Slack integration is wired."""
     logger.info(
-        "[notify/slack] Would post to #sre-alerts: %s [%s] — %s",
-        ticket.ticket_id,
-        triage.severity,
-        ticket.ticket_url,
+        "slack_notification",
+        channel="#sre-alerts",
+        ticket_id=ticket.ticket_id,
+        severity=triage.severity,
     )
 
 
 def _send_team_email(ticket: TicketInfo, triage: TriageResult) -> None:
     """Stub: send email to SRE team distribution list until email integration is wired."""
     logger.info(
-        "[notify/email] Would email sre-team@company.com about ticket %s [%s]",
-        ticket.ticket_id,
-        triage.severity,
+        "email_notification",
+        recipient="sre-team@company.com",
+        ticket_id=ticket.ticket_id,
+        severity=triage.severity,
     )

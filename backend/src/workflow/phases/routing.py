@@ -51,7 +51,7 @@ def _select_tools(
     if any(kw in text for kw in _TELEMETRY_KEYWORDS) and "telemetry_analyzer" not in already_called:
         selected.append("telemetry_analyzer")
 
-    logger.info("[routing] Tools selected: %s", selected)
+    logger.info("tools_selected", tools=selected)
     return selected
 
 
@@ -66,7 +66,7 @@ async def _dispatch_tools(
         if tool in _TOOL_DISPATCH
     ]
     results = await asyncio.gather(*coroutines)
-    logger.info("[routing] All tools completed: %d results", len(results))
+    logger.info("tools_completed", count=len(results))
     return list(results)
 
 
