@@ -9,9 +9,9 @@ async def handle_resolution(payload: ResolutionPayload) -> None:
     knowledge base for future retrieval and triage improvement.
     """
     logger.info(
-        "[resolution] Ticket resolved: %s by %s",
-        payload.ticket_id,
-        payload.resolved_by,
+        "ticket_resolved",
+        ticket_id=payload.ticket_id,
+        resolved_by=payload.resolved_by,
     )
     _notify_reporter(payload)
     await _save_to_knowledge_base(payload)
@@ -23,9 +23,9 @@ def _notify_reporter(payload: ResolutionPayload) -> None:
     Stub: logs intent until email integration is wired.
     """
     logger.info(
-        "[resolution/email] Would notify reporter about resolved ticket %s — notes: %s",
-        payload.ticket_id,
-        payload.resolution_notes,
+        "resolution_email",
+        ticket_id=payload.ticket_id,
+        notes=payload.resolution_notes,
     )
 
 
@@ -35,6 +35,7 @@ async def _save_to_knowledge_base(payload: ResolutionPayload) -> None:
     Stub: logs intent until Qdrant integration is wired.
     """
     logger.info(
-        "[resolution/kb] Would upsert resolution into vector DB: ticket=%s",
-        payload.ticket_id,
+        "kb_upsert",
+        ticket_id=payload.ticket_id,
+        integration="qdrant",
     )

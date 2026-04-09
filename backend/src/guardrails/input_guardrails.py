@@ -34,7 +34,7 @@ class PromptInjectionGuardrail(BaseGuardrail):
 
         malicious = [p for p in self.MALICIOUS_PATTERNS if p in text_lower]
         if malicious:
-            logger.warning("[guardrails] Malicious injection patterns=%s", malicious)
+            logger.warning("malicious_injection_patterns", patterns=malicious)
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.MALICIOUS,
@@ -44,7 +44,7 @@ class PromptInjectionGuardrail(BaseGuardrail):
 
         suspicious = [p for p in self.SUSPICIOUS_PATTERNS if p in text_lower]
         if suspicious:
-            logger.warning("[guardrails] Suspicious injection patterns=%s", suspicious)
+            logger.warning("suspicious_injection_patterns", patterns=suspicious)
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.SUSPICIOUS,
@@ -85,8 +85,8 @@ class GuardrailsEngine:
 
             if not result.is_safe:
                 logger.warning(
-                    "[guardrails] Guardrail=%s blocked content",
-                    guardrail.__class__.__name__,
+                    "guardrail_blocked_content",
+                    guardrail=guardrail.__class__.__name__,
                 )
 
         # Aggregate threat level without relying on str ordering

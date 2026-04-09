@@ -1,7 +1,46 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from src.api.routes.incident_routes import router as incident_router
+from src.utils.logger import generate_request_id, bind_request_context, logger
+from src.utils.tracing import configure_mlflow
 import os
+import time
+
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or generate_request_id()
+        
+        bind_request_context(request_id, path=request.url.path, method=request.method)
+        
+        start_time = time.perf_counter()
+        
+        try:
+            response = await call_next(request)
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            
+            logger.info(
+                "request_completed",
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+                latency_ms=latency_ms,
+            )
+            
+            response.headers["X-Request-ID"] = request_id
+            return response
+        except Exception as e:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.error(
+                "request_failed",
+                method=request.method,
+                path=request.url.path,
+                error_type=type(e).__name__,
+                latency_ms=latency_ms,
+                exc_info=True,
+            )
+            raise
 
 origins = [
     "http://localhost:3000",
@@ -10,11 +49,15 @@ origins = [
     "http://127.0.0.1:8001",
 ]
 
+configure_mlflow()
+
 app = FastAPI(
     title="Llama Index API",
     description="API backend",
     version="1.0.0",
 )
+
+app.add_middleware(RequestContextMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,20 +1,23 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-
+import mlflow
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
 from src.guardrails import GuardrailsEngine
 from src.guardrails.models import ThreatLevel
 from src.guardrails.relevance_guardrail import RelevanceGuardrail
 from src.guardrails.validators import ContentTypeGuardrail
-from src.utils.logger import logger
+from src.utils.logger import logger, bind_request_context, generate_request_id
+from src.utils.tracing import start_run
 from src.workflow.models import IncidentInput, PreprocessedIncident, ResolutionPayload
 from src.workflow.phases.preprocessing import preprocess_incident
 from src.workflow.phases.resolution import handle_resolution
 from src.workflow.sre_workflow import SREIncidentWorkflow
+import structlog
 
 router = APIRouter(prefix="/api")
 
 
 @router.post("/ingest")
 async def ingest_incident(
+    request: Request,
     text_desc: str = Form(...),
     reporter_email: str = Form(...),
     file_attachment: UploadFile | None = File(default=None),
@@ -27,9 +30,13 @@ async def ingest_incident(
         - Guardrails validation on consolidated text (text + extracted file content)
         - LLM relevance check
     """
+    request_id = request.headers.get("X-Request-ID") or generate_request_id()
+    bind_request_context(request_id, phase="ingest", component="api")
+    
+    logger.info("ingest_started", text_desc_length=len(text_desc), has_attachment=file_attachment is not None)
+
     file_content: bytes | None = None
     file_mime_type: str | None = None
-
     file_name: str | None = None
 
     if file_attachment:
@@ -39,7 +46,7 @@ async def ingest_incident(
 
         ct_result = ContentTypeGuardrail().validate("", mime_type=file_mime_type)
         if not ct_result.is_safe:
-            logger.warning("[ingest] Blocked MIME type: %s — %s", file_mime_type, ct_result.message)
+            logger.warning("blocked_mime_type", mime_type=file_mime_type, reason=ct_result.message)
             raise HTTPException(status_code=400, detail=ct_result.message)
 
     incident = IncidentInput(
@@ -50,36 +57,46 @@ async def ingest_incident(
         file_name=file_name,
     )
 
-    # Preprocess first so guardrails evaluate the full consolidated text (desc + file content)
     preprocessed = await preprocess_incident(incident)
-    logger.info("[ingest] Preprocessing complete — text length=%d", len(preprocessed.consolidated_text))
+    preprocessed.request_id = request_id
+    logger.info("preprocessing_complete", text_length=len(preprocessed.consolidated_text))
 
     # Pattern-based guardrails on the full consolidated text
     engine_result = GuardrailsEngine().validate(preprocessed.consolidated_text)
     if engine_result.threat_level == ThreatLevel.MALICIOUS:
-        logger.warning("[ingest] Guardrails hard-blocked input: %s", engine_result.message)
+        logger.warning("guardrails_blocked_input", threat_level="MALICIOUS", reason=engine_result.message)
         raise HTTPException(status_code=400, detail=engine_result.message)
     elif engine_result.threat_level == ThreatLevel.SUSPICIOUS:
         preprocessed.security_flag = "suspicious_input"
-        logger.warning("[ingest] Guardrails soft-flagged input — proceeding with caution")
+        logger.warning("guardrails_flagged_input", threat_level="SUSPICIOUS")
 
     # LLM relevance check — rejects off-topic or adversarial inputs
     relevance_result = await RelevanceGuardrail().validate(preprocessed.consolidated_text)
     if not relevance_result.is_safe:
-        logger.warning("[ingest] Relevance check blocked input: %s", relevance_result.message)
+        logger.warning("relevance_check_blocked", reason=relevance_result.message)
         raise HTTPException(status_code=422, detail=relevance_result.message)
 
     workflow = SREIncidentWorkflow(timeout=120)
+
     try:
-        ticket = await workflow.run(preprocessed=preprocessed)
+        with start_run(request_id=request_id, run_name=f"incident-{request_id[:8]}"):
+            structlog.contextvars.bind_contextvars(run_id=request_id)
+            with mlflow.start_span(name="sre_incident_workflow", span_type=mlflow.entities.SpanType.CHAIN) as span:
+                span.set_inputs({"request_id": request_id, "text_length": len(preprocessed.consolidated_text)})
+                ticket = await workflow.run(preprocessed=preprocessed)
+                span.set_outputs({"ticket_id": ticket.ticket_id, "action": ticket.action})
+
+        logger.info("workflow_completed", ticket_id=ticket.ticket_id, action=ticket.action)
+        
         return {
             "status": "triaged",
             "ticket_id": ticket.ticket_id,
             "ticket_url": ticket.ticket_url,
             "action": ticket.action,
+            "request_id": request_id,
         }
     except Exception as exc:
-        logger.error("[ingest] Unexpected triage error: %s", exc)
+        logger.error("triage_error", error_type=type(exc).__name__, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal triage error.")
 
 

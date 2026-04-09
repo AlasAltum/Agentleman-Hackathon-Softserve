@@ -1,6 +1,6 @@
 from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
 
-from src.utils.logger import logger
+from src.utils.logger import logger, log_phase_start, log_phase_success, log_phase_failure
 from src.workflow.events import (
     CandidatesRetrievedEvent,
     ContextEnrichedEvent,
@@ -31,9 +31,9 @@ class SREIncidentWorkflow(Workflow):
         rerank_candidates     — score-based reranking to Top-N
         classify_incident     — cluster & time judge → Alert Storm / Regression / New
 
-    Triage pipeline (Steps 4–6):
+    Triage pipeline (Steps 4–5):
         router                — decides which tools to dispatch (event-driven loop)
-        dispatch_tools        — executes selected tools in parallel
+        dispatch_tools        — executes selected tools in parallel, feeds back to router
         create_ticket_and_notify — ticket creation/update + team alerts
 
     Event flow:
@@ -42,8 +42,7 @@ class SREIncidentWorkflow(Workflow):
           → rerank_candidates    (RankedCandidatesEvent)
           → classify_incident    (ContextEnrichedEvent)
           → router               (ToolCallEvent | TriageCompleteEvent)
-          → dispatch_tools       (ToolResultEvent)
-          → [loops back to router via ToolResultEvent]
+          → dispatch_tools       (ToolResultEvent → router loop)
           → create_ticket_and_notify (StopEvent)
     """
 
@@ -55,14 +54,19 @@ class SREIncidentWorkflow(Workflow):
     ) -> CandidatesRetrievedEvent:
         preprocessed: PreprocessedIncident = ev.preprocessed
 
+        request_id = preprocessed.request_id or "unknown"
+        log_phase_start("retrieve", component="workflow", request_id=request_id)
+
         # Initialise shared context for the triage loop
         await ctx.store.set("iteration", 0)
         await ctx.store.set("accumulated_results", [])
+        await ctx.store.set("request_id", request_id)
 
-        logger.info("[retrieve] Querying Qdrant for similar historical incidents")
+        logger.info("retrieve_candidates_start", request_id=request_id)
         candidates = await retrieve_candidates(preprocessed)
+        logger.info("retrieve_candidates_done", candidates_count=len(candidates), request_id=request_id)
 
-        logger.info("[retrieve] Got %d raw candidates from Qdrant", len(candidates))
+        log_phase_success("retrieve", latency_ms=0, candidates_count=len(candidates), request_id=request_id)
         return CandidatesRetrievedEvent(preprocessed=preprocessed, candidates=candidates)
 
     # ── Step 2: Node Reranker ─────────────────────────────────────────────────
@@ -71,9 +75,14 @@ class SREIncidentWorkflow(Workflow):
     async def rerank_candidates_step(
         self, ctx: Context, ev: CandidatesRetrievedEvent
     ) -> RankedCandidatesEvent:
-        logger.info("[rerank] Reranking %d candidates", len(ev.candidates))
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("rerank", component="workflow", request_id=request_id)
+
+        logger.info("rerank_candidates_start", candidates_count=len(ev.candidates), request_id=request_id)
         ranked = rerank_candidates(ev.candidates)
-        logger.info("[rerank] Kept top-%d after reranking", len(ranked))
+        logger.info("rerank_candidates_done", ranked_count=len(ranked), request_id=request_id)
+
+        log_phase_success("rerank", latency_ms=0, ranked_count=len(ranked), request_id=request_id)
         return RankedCandidatesEvent(preprocessed=ev.preprocessed, candidates=ranked)
 
     # ── Step 3: Cluster & Time Judge ─────────────────────────────────────────
@@ -82,8 +91,13 @@ class SREIncidentWorkflow(Workflow):
     async def classify_incident_step(
         self, ctx: Context, ev: RankedCandidatesEvent
     ) -> ContextEnrichedEvent:
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("classify", component="workflow", request_id=request_id)
+
         classification = classify_incident(ev.candidates)
-        logger.info("[classify] Incident type: %s", classification.incident_type)
+        logger.info("classify_incident_done", incident_type=classification.incident_type, request_id=request_id)
+
+        log_phase_success("classify", latency_ms=0, incident_type=classification.incident_type, request_id=request_id)
         return ContextEnrichedEvent(
             preprocessed=ev.preprocessed,
             classification=classification,
@@ -95,7 +109,8 @@ class SREIncidentWorkflow(Workflow):
     async def router(
         self, ctx: Context, ev: ContextEnrichedEvent | ToolResultEvent
     ) -> ToolCallEvent | TriageCompleteEvent:
-        logger.info("[router] Evaluating context and deciding next tools")
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("router", component="workflow", request_id=request_id)
 
         preprocessed = ev.preprocessed
         classification = ev.classification
@@ -110,27 +125,23 @@ class SREIncidentWorkflow(Workflow):
             iteration = ev.iteration
             await ctx.store.set("iteration", iteration)
             await ctx.store.set("accumulated_results", accumulated_results)
-            logger.info(
-                "[router] Iteration %d with %d accumulated results",
-                iteration,
-                len(accumulated_results),
-            )
+            logger.info("router_iteration", iteration=iteration, results_count=len(accumulated_results), request_id=request_id)
 
         max_iterations: int = await ctx.store.get("max_iterations", default=3)
 
         if iteration >= max_iterations:
-            logger.info("[router] Max iterations reached, proceeding to ticketing")
+            logger.info("max_iterations_reached", phase="router", request_id=request_id)
             triage = _consolidate_triage(preprocessed, classification, accumulated_results)
             return TriageCompleteEvent(preprocessed=preprocessed, triage=triage)
 
         selected_tools = _select_tools(preprocessed, classification, accumulated_results)
 
         if not selected_tools:
-            logger.info("[router] No more tools to dispatch, proceeding to ticketing")
+            logger.info("no_tools_to_dispatch", phase="router", request_id=request_id)
             triage = _consolidate_triage(preprocessed, classification, accumulated_results)
             return TriageCompleteEvent(preprocessed=preprocessed, triage=triage)
 
-        logger.info("[router] Dispatching tools: %s", selected_tools)
+        log_phase_success("router", latency_ms=0, tools=selected_tools, request_id=request_id)
         return ToolCallEvent(
             preprocessed=preprocessed,
             classification=classification,
@@ -145,12 +156,13 @@ class SREIncidentWorkflow(Workflow):
     async def dispatch_tools(
         self, ctx: Context, ev: ToolCallEvent
     ) -> ToolResultEvent:
-        logger.info("[dispatch] Executing tools: %s", ev.tools_to_dispatch)
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("dispatch_tools", component="workflow", tools=ev.tools_to_dispatch, request_id=request_id)
 
         new_results = await _dispatch_tools(ev.tools_to_dispatch, ev.preprocessed)
         all_results = list(ev.previous_results) + list(new_results)
 
-        logger.info("[dispatch] Tools completed: %d total results", len(all_results))
+        log_phase_success("dispatch_tools", latency_ms=0, total_results=len(all_results), request_id=request_id)
         return ToolResultEvent(
             preprocessed=ev.preprocessed,
             classification=ev.classification,
@@ -158,36 +170,16 @@ class SREIncidentWorkflow(Workflow):
             iteration=ev.iteration + 1,
         )
 
-    # ── Step 6: Results Processor ─────────────────────────────────────────────
-
-    @step
-    async def process_results(
-        self, ctx: Context, ev: ToolResultEvent
-    ) -> ToolResultEvent:
-        logger.info(
-            "[process_results] Processed %d tool results, returning to router",
-            len(ev.tool_results),
-        )
-        return ToolResultEvent(
-            preprocessed=ev.preprocessed,
-            classification=ev.classification,
-            tool_results=ev.tool_results,
-            iteration=ev.iteration,
-        )
-
-    # ── Step 7: Ticket + Notification ────────────────────────────────────────
+    # ── Step 6: Ticket + Notification ────────────────────────────────────────
 
     @step
     async def create_ticket_and_notify(
         self, ctx: Context, ev: TriageCompleteEvent
     ) -> StopEvent:
-        logger.info("[ticketing] Creating ticket and alerting team")
+        request_id = await ctx.store.get("request_id", default="unknown")
+        log_phase_start("ticketing", component="workflow", request_id=request_id)
         reporter_email = ev.preprocessed.original.reporter_email
         ticket = _create_or_update_ticket(ev.triage, reporter_email, ev.preprocessed)
         _notify_team(ticket, ev.triage)
-        logger.info(
-            "[ticketing] Done — ticket=%s action=%s",
-            ticket.ticket_id,
-            ticket.action,
-        )
+        log_phase_success("ticketing", latency_ms=0, ticket_id=ticket.ticket_id, action=ticket.action, request_id=request_id)
         return StopEvent(result=ticket)

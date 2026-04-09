@@ -39,6 +39,7 @@ class PreprocessedIncident(BaseModel):
     consolidated_text: str
     file_metadata: FileMetadata = FileMetadata()
     security_flag: Optional[str] = None
+    request_id: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
