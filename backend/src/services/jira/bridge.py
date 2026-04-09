@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -84,6 +85,7 @@ def create_ticket(
             ticket_url=issue.issue_url,
             action="created",
             reporter_email=reporter_email,
+            request_id=active_request_id,
         )
 
 
@@ -145,6 +147,73 @@ def resolve_ticket(payload: ResolutionPayload, request_id: str) -> JiraResolutio
         )
 
 
+async def poll_ticket_until_resolved(
+    ticket: TicketInfo,
+    request_id: str,
+    poll_interval_seconds: int = 30,
+) -> None:
+    """Poll Jira in local development because we could not expose a webhook endpoint.
+
+    Once the ticket reaches a resolved state, this reuses the same webhook route
+    that Jira would normally call in a deployed environment.
+    """
+    active_request_id = _require_request_id(ticket.request_id or request_id)
+    config = load_config_from_env()
+    client = JiraClient(config)
+    previous_status_name: str | None = None
+
+    log_event(
+        "info",
+        "jira.ticket.poller.started",
+        active_request_id,
+        ticket_id=ticket.ticket_id,
+        interval_seconds=poll_interval_seconds,
+    )
+
+    while True:
+        await asyncio.sleep(poll_interval_seconds)
+        poll_request_id = f"{active_request_id}-poll"
+
+        try:
+            issue_payload = await asyncio.to_thread(
+                client.get_issue,
+                issue_key=ticket.ticket_id,
+                fields=["summary", "status", "description"],
+                request_id=poll_request_id,
+            )
+        except JiraClientError as exc:
+            log_event(
+                "warning",
+                "jira.ticket.poller.failed",
+                active_request_id,
+                ticket_id=ticket.ticket_id,
+                error=str(exc),
+            )
+            continue
+
+        current_status_name = _issue_status_name(issue_payload)
+        if not _issue_is_resolved(issue_payload):
+            previous_status_name = current_status_name or previous_status_name
+            continue
+
+        from src.api.routes.incident_routes import on_ticket_resolved
+
+        await on_ticket_resolved(
+            _build_resolution_webhook_payload(
+                issue_payload,
+                previous_status_name=previous_status_name,
+            )
+        )
+        log_event(
+            "info",
+            "jira.ticket.poller.completed",
+            active_request_id,
+            ticket_id=ticket.ticket_id,
+            status_name=current_status_name,
+        )
+        return
+
+
 def _build_issue_summary(preprocessed: PreprocessedIncident) -> str:
     """Create a short Jira summary from the original incident report.
 
@@ -198,6 +267,7 @@ def _build_issue_document(preprocessed: PreprocessedIncident) -> dict[str, Any]:
     consolidated_text = preprocessed.consolidated_text.strip()
     paragraphs = [
         f"Reporter email: {preprocessed.original.reporter_email}",
+        f"Request ID: {preprocessed.request_id or 'unknown'}",
         "Original report:",
         original_text,
     ]
@@ -206,8 +276,10 @@ def _build_issue_document(preprocessed: PreprocessedIncident) -> dict[str, Any]:
         paragraphs.append("Preprocessed incident context:")
         paragraphs.append(consolidated_text[:2000])
 
-    if preprocessed.file_metadata.mime_type:
-        paragraphs.append(f"Attached content type: {preprocessed.file_metadata.mime_type}")
+    if preprocessed.file_metadata.mime_types:
+        paragraphs.append(
+            "Attached content types: " + ", ".join(preprocessed.file_metadata.mime_types)
+        )
 
     if preprocessed.security_flag:
         paragraphs.append(f"Security flag: {preprocessed.security_flag}")
@@ -229,6 +301,61 @@ def _build_adf_document(paragraphs: list[str]) -> dict[str, Any]:
             }
         )
     return {"version": 1, "type": "doc", "content": content}
+
+
+def _build_resolution_webhook_payload(
+    issue_payload: dict[str, Any],
+    *,
+    previous_status_name: str | None,
+) -> dict[str, Any]:
+    fields = issue_payload.get("fields") or {}
+    status = fields.get("status") if isinstance(fields, dict) else {}
+    status_name = _issue_status_name(issue_payload) or "Done"
+    return {
+        "webhookEvent": "jira:issue_updated",
+        "user": {
+            "displayName": "jira-poller",
+            "accountType": "atlassian",
+        },
+        "issue": {
+            "key": issue_payload.get("key"),
+            "fields": {
+                "summary": fields.get("summary") if isinstance(fields, dict) else None,
+                "status": status if isinstance(status, dict) else {"name": status_name},
+                "description": fields.get("description") if isinstance(fields, dict) else None,
+            },
+        },
+        "changelog": {
+            "items": [
+                {
+                    "field": "status",
+                    "fromString": previous_status_name or "In Progress",
+                    "toString": status_name,
+                }
+            ]
+        },
+    }
+
+
+def _issue_is_resolved(issue_payload: dict[str, Any]) -> bool:
+    status = issue_payload.get("fields", {}).get("status", {})
+    if not isinstance(status, dict):
+        return False
+
+    category = status.get("statusCategory")
+    if isinstance(category, dict) and str(category.get("key", "")).strip().lower() == "done":
+        return True
+
+    status_name = str(status.get("name", "")).strip().lower()
+    return status_name in {"done", "resolved", "closed"}
+
+
+def _issue_status_name(issue_payload: dict[str, Any]) -> str | None:
+    status = issue_payload.get("fields", {}).get("status", {})
+    if not isinstance(status, dict):
+        return None
+    value = str(status.get("name", "")).strip()
+    return value or None
 
 
 def _select_resolution_transition(

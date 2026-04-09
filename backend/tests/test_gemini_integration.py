@@ -161,7 +161,7 @@ class TestGeminiWithWorkflow:
              patch("src.workflow.sre_workflow._dispatch_tools") as mock_dispatch, \
              patch("src.workflow.sre_workflow._consolidate_triage") as mock_consolidate, \
              patch("src.workflow.sre_workflow._create_or_update_ticket") as mock_ticket, \
-             patch("src.workflow.sre_workflow._notify_team") as mock_notify:
+             patch("src.workflow.sre_workflow.dispatch_notifications") as mock_notify:
             
             mock_retrieve.return_value = []
             mock_rerank.return_value = []

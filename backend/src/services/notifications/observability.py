@@ -20,8 +20,8 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency in local e
 
 from src.utils.logger import logger
 
-_TRACER = trace.get_tracer("src.services.notification-zavu") if trace else None
-_METER = metrics.get_meter("src.services.notification-zavu") if metrics else None
+_TRACER = trace.get_tracer("src.services.notifications") if trace else None
+_METER = metrics.get_meter("src.services.notifications") if metrics else None
 _COUNTERS: dict[str, Any] = {}
 _HISTOGRAMS: dict[str, Any] = {}
 

@@ -75,13 +75,16 @@ class TriageResult(BaseModel):
 class TicketInfo(BaseModel):
     ticket_id: str
     ticket_url: str
-    action: str  # "created" or "updated"
     reporter_email: str
+    action: str  # "created" or "updated"
     title: str = ""
     description: str = ""
+    request_id: Optional[str] = None
 
 
 class ResolutionPayload(BaseModel):
     ticket_id: str
     resolved_by: str
     resolution_notes: str
+    reporter_email: Optional[str] = None
+    request_id: Optional[str] = None

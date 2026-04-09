@@ -33,11 +33,10 @@ def _preprocessed_incident(security_flag: str | None = None) -> PreprocessedInci
         original=IncidentInput(
             text_desc="Checkout API returns 500 after payment confirmation",
             reporter_email="reporter@example.com",
-            file_name="incident.log",
-            file_mime_type="text/plain",
         ),
         consolidated_text="Checkout API returns 500 after payment confirmation in the production checkout flow.",
         security_flag=security_flag,
+        request_id="req-123",
     )
 
 
@@ -101,12 +100,14 @@ def test_create_ticket_creates_new_issue(monkeypatch):
     assert result.ticket_id == "SRE-123"
     assert result.action == "created"
     assert result.reporter_email == "reporter@example.com"
+    assert result.request_id == "req-123"
     assert captured["summary"] == "Incident report - Checkout API returns 500 after payment confirmation"
     labels = cast(list[str], captured["labels"])
     assert "incident-new_incident" in labels
     assert "severity-high" in labels
     assert "security-review" in labels
     description_text = str(captured["description"])
+    assert "Request ID: req-123" in description_text
     assert "Original report:" in description_text
     assert "Technical summary:" not in description_text
 
@@ -177,3 +178,78 @@ def test_resolve_ticket_transitions_issue(monkeypatch):
     assert result.transition_name == "Done"
     assert captured["transition_issue_key"] == "SRE-77"
     assert captured["transition_id"] == "31"
+
+
+@pytest.mark.asyncio
+async def test_poll_ticket_until_resolved_calls_resolution_webhook(monkeypatch):
+    bridge = _module()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("ATLASSIAN_EMAIL", "alerts@example.com")
+    monkeypatch.setenv("ATLASSIAN_API_TOKEN", "token")
+    monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+    monkeypatch.setenv("JIRA_PROJECT_KEY", "SRE")
+
+    class FakeClient:
+        def __init__(self, config):
+            self.config = config
+
+        def get_issue(self, *, issue_key, fields, request_id):
+            captured["issue_key"] = issue_key
+            captured["fields"] = fields
+            captured["request_id"] = request_id
+            return {
+                "key": issue_key,
+                "fields": {
+                    "summary": "Checkout API returns 500 after payment confirmation",
+                    "status": {
+                        "name": "Done",
+                        "statusCategory": {"key": "done"},
+                    },
+                    "description": {
+                        "version": 1,
+                        "type": "doc",
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [
+                                    {"type": "text", "text": "Reporter email: reporter@example.com"}
+                                ],
+                            },
+                            {
+                                "type": "paragraph",
+                                "content": [
+                                    {"type": "text", "text": "Request ID: req-123"}
+                                ],
+                            },
+                        ],
+                    },
+                },
+            }
+
+    async def _fake_on_ticket_resolved(payload):
+        captured["payload"] = payload
+        return {"status": "resolution_processed"}
+
+    monkeypatch.setattr(bridge, "JiraClient", FakeClient)
+
+    incident_routes = importlib.import_module("src.api.routes.incident_routes")
+    monkeypatch.setattr(incident_routes, "on_ticket_resolved", _fake_on_ticket_resolved)
+
+    await bridge.poll_ticket_until_resolved(
+        ticket=bridge.TicketInfo(
+            ticket_id="SRE-123",
+            ticket_url="https://example.atlassian.net/browse/SRE-123",
+            action="created",
+            reporter_email="reporter@example.com",
+            request_id="req-123",
+        ),
+        request_id="req-123",
+        poll_interval_seconds=0,
+    )
+
+    assert captured["issue_key"] == "SRE-123"
+    assert captured["fields"] == ["summary", "status", "description"]
+    webhook_payload = cast(dict[str, object], captured["payload"])
+    assert webhook_payload["webhookEvent"] == "jira:issue_updated"
+    assert cast(dict[str, object], webhook_payload["issue"])["key"] == "SRE-123"

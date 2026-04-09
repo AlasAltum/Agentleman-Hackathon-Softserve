@@ -1,4 +1,6 @@
+import importlib
 import asyncio
+import os
 import uuid
 from typing import Optional
 
@@ -6,7 +8,12 @@ from llama_index.core.llms import ChatMessage
 
 from src.utils.logger import logger
 from src.utils.setup import get_settings
-from src.workflow.models import PreprocessedIncident, TicketInfo, TriageResult
+from src.workflow.models import PreprocessedIncident, ResolutionPayload, TicketInfo, TriageResult
+
+_NOTIFICATION_BRIDGE_MODULE = "src.services.notifications.bridge"
+_JIRA_BRIDGE_MODULE = "src.services.jira.bridge"
+_LOCAL_RESOLUTION_POLL_INTERVAL_SECONDS = 45
+_RESOLUTION_POLLER_TASKS: set[asyncio.Task[None]] = set()
 
 
 _SUMMARY_PROMPT = """\
@@ -108,6 +115,8 @@ def _build_ticket_description(
             f"*Severity:* {severity}",
             f"*Incident Type:* {incident_type}",
         ]
+        if preprocessed and preprocessed.request_id:
+            lines.append(f"*Request ID:* {preprocessed.request_id}")
         if llm_summary.get("ROOT_CAUSE"):
             lines += ["", "h2. Root Cause", llm_summary["ROOT_CAUSE"]]
         if llm_summary.get("IMPACT"):
@@ -123,6 +132,10 @@ def _build_ticket_description(
             "",
             f"*Severity:* {severity}",
             f"*Incident Type:* {incident_type}",
+        ]
+        if preprocessed and preprocessed.request_id:
+            lines.append(f"*Request ID:* {preprocessed.request_id}")
+        lines += [
             "",
             "h2. Business Impact",
             triage.business_impact_summary,
@@ -161,6 +174,33 @@ async def _create_new_ticket(
     request_id = preprocessed.request_id if preprocessed else "unknown"
     title = _build_ticket_title(triage, llm_summary)
     description = _build_ticket_description(triage, preprocessed, llm_summary)
+
+    if preprocessed and _jira_ticketing_enabled():
+        jira_bridge = _load_jira_bridge()
+        jira_ticket = await asyncio.to_thread(
+            jira_bridge.create_ticket,
+            preprocessed,
+            triage,
+            request_id,
+        )
+        logger.info(
+            "ticket_created",
+            request_id=request_id,
+            ticket_id=jira_ticket.ticket_id,
+            severity=triage.severity,
+            title=title,
+            provider="jira",
+        )
+        return TicketInfo(
+            ticket_id=jira_ticket.ticket_id,
+            ticket_url=jira_ticket.ticket_url,
+            action=jira_ticket.action,
+            reporter_email=jira_ticket.reporter_email,
+            title=title,
+            description=description,
+            request_id=jira_ticket.request_id or request_id,
+        )
+
     logger.info("ticket_created", request_id=request_id, ticket_id=ticket_id, severity=triage.severity, title=title)
 
     if preprocessed and preprocessed.security_flag:
@@ -177,39 +217,182 @@ async def _create_new_ticket(
         reporter_email=reporter_email,
         title=title,
         description=description,
+        request_id=request_id,
     )
 
 
 
-def _notify_team(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
-    """Notify technical team via Slack and Email."""
+def dispatch_notifications(
+    ticket: TicketInfo | None = None,
+    triage: TriageResult | None = None,
+    request_id: str = "unknown",
+    *,
+    resolution_payload: ResolutionPayload | None = None,
+) -> None:
+    """Dispatch notification fan-out for ticket creation and resolution events to the 
+    engineering team."""
+    if resolution_payload is not None:
+        active_request_id = resolution_payload.request_id or request_id
+        logger.info(
+            "resolution_notification",
+            request_id=active_request_id,
+            ticket_id=resolution_payload.ticket_id,
+        )
+        _send_resolution_reporter_email(resolution_payload, active_request_id)
+        return
+
+    if ticket is None or triage is None:
+        raise ValueError("ticket and triage are required when resolution_payload is not provided")
+
+    active_request_id = ticket.request_id or request_id
     logger.info(
         "team_notification",
-        request_id=request_id,
+        request_id=active_request_id,
         ticket_id=ticket.ticket_id,
         severity=triage.severity,
     )
-    # TODO: [Alonso] Aquí voy a agregar la notificación en ZAVU
-    _send_team_email(ticket, triage, request_id)
+    _send_team_notifications(ticket, triage, active_request_id)
+    _send_reporter_email(ticket, triage, active_request_id)
+    _start_resolution_poller(ticket, active_request_id)
 
 
-def _send_slack_notification(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
-    """Stub: send Slack message to SRE channel until Slack integration is wired."""
-    logger.info(
-        "slack_notification",
-        request_id=request_id,
-        channel="#sre-alerts",
-        ticket_id=ticket.ticket_id,
-        severity=triage.severity,
+def _load_notification_bridge():
+    return importlib.import_module(_NOTIFICATION_BRIDGE_MODULE)
+
+
+def _load_jira_bridge():
+    return importlib.import_module(_JIRA_BRIDGE_MODULE)
+
+
+def _jira_ticketing_enabled() -> bool:
+    return all(
+        os.getenv(name, "").strip()
+        for name in (
+            "JIRA_BASE_URL",
+            "JIRA_PROJECT_KEY",
+            "ATLASSIAN_EMAIL",
+            "ATLASSIAN_API_TOKEN",
+        )
     )
 
 
-def _send_team_email(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
-    """Stub: send email to SRE team distribution list until email integration is wired."""
+def _jira_polling_enabled() -> bool:
+    value = os.getenv("POLL_JIRA_TICKETS", "false").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _start_resolution_poller(ticket: TicketInfo, request_id: str) -> None:
+    if not _jira_polling_enabled():
+        return
+
+    if not _jira_ticketing_enabled():
+        return
+
+    jira_bridge = _load_jira_bridge()
+    task = asyncio.create_task(
+        jira_bridge.poll_ticket_until_resolved(
+            ticket,
+            request_id=request_id,
+            poll_interval_seconds=_LOCAL_RESOLUTION_POLL_INTERVAL_SECONDS,
+        )
+    )
+    _RESOLUTION_POLLER_TASKS.add(task)
+    task.add_done_callback(_RESOLUTION_POLLER_TASKS.discard)
+
+def _send_team_notifications(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
+    try:
+        bridge = _load_notification_bridge()
+        result = bridge.notify_team(ticket, triage, request_id=request_id)
+    except Exception as exc:
+        logger.warning(
+            "team_notification_failed",
+            request_id=request_id,
+            ticket_id=ticket.ticket_id,
+            error=str(exc),
+        )
+        return
+
     logger.info(
-        "email_notification",
+        "team_notification_dispatched",
         request_id=request_id,
-        recipient="sre-team@company.com",
         ticket_id=ticket.ticket_id,
         severity=triage.severity,
+        dispatched=len(result.dispatched),
+        failed=len(result.failed),
+    )
+
+
+def _send_reporter_email(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
+    reporter_email = ticket.reporter_email.strip()
+    if not reporter_email:
+        logger.warning(
+            "reporter_notification_skipped",
+            request_id=request_id,
+            ticket_id=ticket.ticket_id,
+            reason="missing_reporter_email",
+        )
+        return
+
+    try:
+        bridge = _load_notification_bridge()
+        result = bridge.notify_reporter_ticket_created(ticket, triage, request_id=request_id)
+    except Exception as exc:
+        logger.warning(
+            "reporter_notification_failed",
+            request_id=request_id,
+            ticket_id=ticket.ticket_id,
+            reporter_email=reporter_email,
+            error=str(exc),
+        )
+        return
+
+    logger.info(
+        "reporter_notification_dispatched",
+        request_id=request_id,
+        ticket_id=ticket.ticket_id,
+        reporter_email=reporter_email,
+        severity=triage.severity,
+        dispatched=len(result.dispatched),
+        failed=len(result.failed),
+    )
+
+
+def _send_resolution_reporter_email(
+    payload: ResolutionPayload,
+    request_id: str = "unknown",
+) -> None:
+    reporter_email = (payload.reporter_email or "").strip()
+    if not reporter_email:
+        logger.info(
+            "resolution_notification_skipped",
+            request_id=request_id,
+            ticket_id=payload.ticket_id,
+            reason="missing_reporter_email",
+        )
+        return
+
+    try:
+        bridge = _load_notification_bridge()
+        result = bridge.notify_reporter_resolution(
+            reporter_email,
+            payload,
+            request_id=request_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "resolution_notification_failed",
+            request_id=request_id,
+            ticket_id=payload.ticket_id,
+            reporter_email=reporter_email,
+            error=str(exc),
+        )
+        return
+
+    logger.info(
+        "resolution_notification_dispatched",
+        request_id=request_id,
+        ticket_id=payload.ticket_id,
+        reporter_email=reporter_email,
+        dispatched=len(result.dispatched),
+        failed=len(result.failed),
     )
