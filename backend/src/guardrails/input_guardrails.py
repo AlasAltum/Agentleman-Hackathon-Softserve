@@ -1,3 +1,4 @@
+import time
 from typing import Protocol
 
 from src.guardrails.base import BaseGuardrail
@@ -34,7 +35,14 @@ class PromptInjectionGuardrail(BaseGuardrail):
 
         malicious = [p for p in self.MALICIOUS_PATTERNS if p in text_lower]
         if malicious:
-            logger.warning("malicious_injection_patterns", patterns=malicious)
+            logger.warning(
+                "guardrail_blocked",
+                phase="guardrails",
+                component="PromptInjectionGuardrail",
+                status="error",
+                threat_level=ThreatLevel.MALICIOUS.value,
+                blocked_patterns=malicious,
+            )
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.MALICIOUS,
@@ -44,7 +52,14 @@ class PromptInjectionGuardrail(BaseGuardrail):
 
         suspicious = [p for p in self.SUSPICIOUS_PATTERNS if p in text_lower]
         if suspicious:
-            logger.warning("suspicious_injection_patterns", patterns=suspicious)
+            logger.warning(
+                "guardrail_blocked",
+                phase="guardrails",
+                component="PromptInjectionGuardrail",
+                status="error",
+                threat_level=ThreatLevel.SUSPICIOUS.value,
+                blocked_patterns=suspicious,
+            )
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.SUSPICIOUS,
@@ -78,6 +93,9 @@ class GuardrailsEngine:
         all_blocked: list[str] = []
         per_threat_levels: list[ThreatLevel] = []
 
+        logger.info("phase_started", phase="guardrails", status="started", component="GuardrailsEngine")
+        start_time = time.perf_counter()
+
         for guardrail in self._guardrails:
             result = guardrail.validate(content)
             all_blocked.extend(result.blocked_patterns)
@@ -85,9 +103,15 @@ class GuardrailsEngine:
 
             if not result.is_safe:
                 logger.warning(
-                    "guardrail_blocked_content",
-                    guardrail=guardrail.__class__.__name__,
+                    "guardrail_blocked",
+                    phase="guardrails",
+                    component=guardrail.__class__.__name__,
+                    status="error",
+                    threat_level=result.threat_level.value,
+                    blocked_patterns=result.blocked_patterns,
                 )
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
 
         # Aggregate threat level without relying on str ordering
         if ThreatLevel.MALICIOUS in per_threat_levels:
@@ -98,6 +122,26 @@ class GuardrailsEngine:
             max_threat = ThreatLevel.SAFE
 
         is_safe = len(all_blocked) == 0
+
+        if is_safe:
+            logger.info(
+                "phase_completed",
+                phase="guardrails",
+                status="success",
+                component="GuardrailsEngine",
+                latency_ms=latency_ms,
+            )
+        else:
+            logger.warning(
+                "phase_completed",
+                phase="guardrails",
+                status="error",
+                component="GuardrailsEngine",
+                latency_ms=latency_ms,
+                threat_level=max_threat.value,
+                blocked_count=len(all_blocked),
+            )
+
         return GuardrailsResult(
             is_safe=is_safe,
             threat_level=max_threat,

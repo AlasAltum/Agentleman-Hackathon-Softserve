@@ -18,7 +18,14 @@ class XssGuardrail(BaseGuardrail):
         blocked = [p for p in self.XSS_PATTERNS if p.lower() in content.lower()]
 
         if blocked:
-            logger.warning("xss_patterns_detected", patterns=blocked)
+            logger.warning(
+                "guardrail_blocked",
+                phase="guardrails",
+                component="XssGuardrail",
+                status="error",
+                threat_level=ThreatLevel.MALICIOUS.value,
+                blocked_patterns=blocked,
+            )
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.MALICIOUS,
@@ -49,7 +56,14 @@ class SqlInjectionGuardrail(BaseGuardrail):
         blocked = [p for p in self.SQL_PATTERNS if p.lower() in content.lower()]
 
         if blocked:
-            logger.warning("sql_injection_patterns_detected", patterns=blocked)
+            logger.warning(
+                "guardrail_blocked",
+                phase="guardrails",
+                component="SqlInjectionGuardrail",
+                status="error",
+                threat_level=ThreatLevel.MALICIOUS.value,
+                blocked_patterns=blocked,
+            )
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.MALICIOUS,
@@ -92,7 +106,14 @@ class ContentTypeGuardrail(BaseGuardrail):
             )
 
         if mime_type not in self._allowed_mime_types:
-            logger.warning("disallowed_mime_type", mime_type=mime_type)
+            logger.warning(
+                "guardrail_blocked",
+                phase="guardrails",
+                component="ContentTypeGuardrail",
+                status="error",
+                threat_level=ThreatLevel.SUSPICIOUS.value,
+                mime_type=mime_type,
+            )
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.SUSPICIOUS,
