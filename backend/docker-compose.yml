@@ -46,11 +46,9 @@ services:
       - ../.env
     volumes:
       - .:/app
+      - ../ecommerce-platform:/ecommerce-platform:ro
     ports:
       - "${EXPOSED_APP_PORT}:${APP_PORT}"
-    networks:
-      - default
-      - observability
 
 volumes:
   postgres_data:
