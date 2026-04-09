@@ -11,17 +11,14 @@ from src.workflow.models import (
 )
 from src.workflow.tools.business_impact import check_business_impact
 from src.workflow.tools.codebase_analyzer import analyze_codebase
-from src.workflow.tools.infra_analyzer import analyze_infrastructure
 from src.workflow.tools.telemetry_analyzer import analyze_telemetry
 
-_INFRA_KEYWORDS = ["terraform", "infrastructure", ".tf", "deployment", "kubernetes", "k8s", "pod", "helm"]
 _CODEBASE_KEYWORDS = ["error", "exception", "syntax", "traceback", "stacktrace", "null pointer", "500", "bug"]
 _TELEMETRY_KEYWORDS = ["spike", "latency", "cpu", "memory", "disk", "timeout", "p99", "metric", "alert"]
 
 _TOOL_DISPATCH: dict[str, any] = {
     "business_impact": check_business_impact,
     "codebase_analyzer": analyze_codebase,
-    "infra_analyzer": analyze_infrastructure,
     "telemetry_analyzer": analyze_telemetry,
 }
 
@@ -44,8 +41,6 @@ def _select_tools(
     if "business_impact" not in already_called:
         selected.append("business_impact")
     
-    if any(kw in text for kw in _INFRA_KEYWORDS) and "infra_analyzer" not in already_called:
-        selected.append("infra_analyzer")
     if any(kw in text for kw in _CODEBASE_KEYWORDS) and "codebase_analyzer" not in already_called:
         selected.append("codebase_analyzer")
     if any(kw in text for kw in _TELEMETRY_KEYWORDS) and "telemetry_analyzer" not in already_called:
