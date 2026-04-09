@@ -243,6 +243,8 @@ async def _create_new_ticket(
                 preprocessed,
                 triage,
                 request_id,
+                llm_title=title,
+                llm_description=description,
             )
         except Exception as exc:
             jira_latency_ms = int((perf_counter() - jira_started_at) * 1000)
