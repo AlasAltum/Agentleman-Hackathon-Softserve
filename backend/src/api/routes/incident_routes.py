@@ -1,5 +1,6 @@
 import mlflow
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
+from typing import List
 from src.guardrails import GuardrailsEngine
 from src.guardrails.models import ThreatLevel
 from src.guardrails.relevance_guardrail import RelevanceGuardrail
@@ -14,13 +15,15 @@ import structlog
 
 router = APIRouter(prefix="/api")
 
+_MAX_FILES = 5
+
 
 @router.post("/ingest")
 async def ingest_incident(
     request: Request,
     text_desc: str = Form(...),
     reporter_email: str = Form(...),
-    file_attachment: UploadFile | None = File(default=None),
+    file_attachments: List[UploadFile] = File(default=[]),
 ):
     """Phase 1 entry point: submit an incident report for automated triage.
 
@@ -32,32 +35,44 @@ async def ingest_incident(
     """
     request_id = request.headers.get("X-Request-ID") or generate_request_id()
     bind_request_context(request_id, phase="ingest", component="api")
-    
-    logger.info("ingest_started", text_desc_length=len(text_desc), has_attachment=file_attachment is not None)
 
-    file_content: bytes | None = None
-    file_mime_type: str | None = None
-    file_name: str | None = None
+    logger.info("ingest_started", text_desc_length=len(text_desc), num_attachments=len(file_attachments))
 
-    if file_attachment:
-        file_content = await file_attachment.read()
-        file_mime_type = file_attachment.content_type
-        file_name = file_attachment.filename
+    if len(file_attachments) > _MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Too many files: maximum is {_MAX_FILES}.")
 
-        ct_result = ContentTypeGuardrail().validate("", mime_type=file_mime_type)
+    file_contents: list[bytes] = []
+    file_mime_types: list[str] = []
+    file_names: list[str] = []
+
+    ct_guardrail = ContentTypeGuardrail()
+    for upload in file_attachments:
+        content = await upload.read()
+        mime_type = upload.content_type or ""
+        file_name = upload.filename or ""
+
+        ct_result = ct_guardrail.validate("", mime_type=mime_type)
         if not ct_result.is_safe:
-            logger.warning("blocked_mime_type", mime_type=file_mime_type, reason=ct_result.message)
+            logger.warning("blocked_mime_type", file_name=file_name, mime_type=mime_type, reason=ct_result.message)
             raise HTTPException(status_code=400, detail=ct_result.message)
+
+        file_contents.append(content)
+        file_mime_types.append(mime_type)
+        file_names.append(file_name)
 
     incident = IncidentInput(
         text_desc=text_desc,
         reporter_email=reporter_email,
-        file_content=file_content,
-        file_mime_type=file_mime_type,
-        file_name=file_name,
+        file_contents=file_contents,
+        file_mime_types=file_mime_types,
+        file_names=file_names,
     )
 
-    preprocessed = await preprocess_incident(incident)
+    try:
+        preprocessed = await preprocess_incident(incident)
+    except ValueError as exc:
+        logger.warning("blocked_file_type", reason=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     preprocessed.request_id = request_id
     logger.info("preprocessing_complete", text_length=len(preprocessed.consolidated_text))
 
