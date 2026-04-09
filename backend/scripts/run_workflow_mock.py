@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Ejecuta el SREIncidentWorkflow completo end-to-end con datos de incidente realistas.
+Ejecuta el SREIncidentWorkflow completo end-to-end con datos de incidente realistas
+llamando al endpoint POST /api/ingest del servidor.
 
 Carga automáticamente las variables de entorno desde backend/.env
 (incluyendo GOOGLE_API_KEY para Gemini y el resto de la configuración).
@@ -17,6 +18,9 @@ Uso:
     SCENARIO=regression poetry run python scripts/run_workflow_mock.py
     SCENARIO=all        poetry run python scripts/run_workflow_mock.py
 
+    # Cambiar URL del servidor:
+    API_BASE_URL=http://localhost:8000  poetry run python scripts/run_workflow_mock.py
+
 Escenarios:
     default      → HTTP 500 en checkout (new_incident)
     infra        → Pod crashloop + Terraform drift (new_incident + infra_analyzer)
@@ -29,7 +33,6 @@ Escenarios:
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # ── Path setup ────────────────────────────────────────────────────────────────
@@ -158,15 +161,6 @@ Possible cause: gateway client not re-initialized after connection pool reset in
             ),
             "reporter_email": "oncall-sre@ecommerce.com",
         },
-        "_mock_candidates": [
-            {
-                "incident_id": "SRE-2026-0398",
-                "similarity_score": 0.93,
-                "hours_ago": 1.5,   # reciente → ALERT_STORM
-                "summary": "order-service DB connection pool exhausted (max=20), multiple pods affected",
-                "resolution": "Temporarily increased pool size to 50; root cause: long-running queries from new reporting job",
-            }
-        ],
     },
     "regression": {
         "description": "JWT 401 ya visto hace meses → HISTORICAL_REGRESSION",
@@ -180,141 +174,77 @@ Possible cause: gateway client not re-initialized after connection pool reset in
             ),
             "reporter_email": "security-team@ecommerce.com",
         },
-        "_mock_candidates": [
-            {
-                "incident_id": "SRE-2025-0071",
-                "similarity_score": 0.89,
-                "hours_ago": 720,   # ~30 días → HISTORICAL_REGRESSION
-                "summary": "JWT 401 errors due to clock skew between auth service and token issuer",
-                "resolution": (
-                    "Root cause: NTP misconfiguration caused clock drift of +18s on auth hosts. "
-                    "Fix: corrected NTP server config, increased JWT clock skew tolerance to 60s in auth service. "
-                    "Deployed hotfix v2.8.3. Monitoring: auth_jwt_validation_errors Prometheus metric."
-                ),
-            }
-        ],
     },
 }
 
 
-# ── Monkey-patch de candidatos históricos ─────────────────────────────────────
-
-def _patch_candidates(mock_candidates: list[dict]) -> None:
-    """Inyecta candidatos históricos en _retrieve_candidates para simular Qdrant."""
-    from src.workflow.models import HistoricalCandidate
-    import src.workflow.phases.classification as cls_module
-
-    def _mock_retrieve(_preprocessed):
-        results = []
-        for c in mock_candidates:
-            ts = datetime.now(tz=timezone.utc) - timedelta(hours=c["hours_ago"])
-            results.append(
-                HistoricalCandidate(
-                    incident_id=c["incident_id"],
-                    similarity_score=c["similarity_score"],
-                    timestamp=ts,
-                    summary=c["summary"],
-                    resolution=c.get("resolution"),
-                )
-            )
-        return results
-
-    cls_module._retrieve_candidates = _mock_retrieve
-
-    # Actualizar referencias ya importadas en sre_workflow
-    import src.workflow.sre_workflow as wf
-    wf._retrieve_candidates = cls_module._retrieve_candidates
-
-
-def _restore_candidates() -> None:
-    """Restaura la implementación original de _retrieve_candidates."""
-    import importlib
-    import src.workflow.phases.classification as cls_module
-    importlib.reload(cls_module)
-    import src.workflow.sre_workflow as wf
-    wf._retrieve_candidates = cls_module._retrieve_candidates
-    wf._rerank_candidates = cls_module._rerank_candidates
-    wf._classify_incident = cls_module._classify_incident
-
-
 # ── Runner ────────────────────────────────────────────────────────────────────
 
-async def run_scenario(name: str, scenario: dict) -> object:
-    from src.utils.setup import setup_defaults
-    from src.workflow.models import IncidentInput
-    from src.workflow.phases.preprocessing import preprocess_incident
-    from src.workflow.sre_workflow import SREIncidentWorkflow
+async def run_scenario(name: str, scenario: dict, base_url: str) -> dict:
+    import httpx
 
-    setup_defaults()
-
-    mock_candidates = scenario.get("_mock_candidates")
-    if mock_candidates:
-        _patch_candidates(mock_candidates)
-
-    print(f"\n{'=' * 72}")
+    sep = "=" * 72
+    print(f"\n{sep}")
     print(f"  ESCENARIO : {name.upper()}")
     print(f"  {scenario['description']}")
-    print(f"{'=' * 72}")
+    print(sep)
 
     inc_data = scenario["incident"]
     file_content = inc_data.get("file_content")
-    file_mime_type = inc_data.get("file_mime_type")
-    file_name = inc_data.get("file_name")
-    incident = IncidentInput(
-        text_desc=inc_data["text_desc"],
-        reporter_email=inc_data["reporter_email"],
-        file_contents=[file_content] if file_content is not None else [],
-        file_mime_types=[file_mime_type] if file_mime_type is not None else [],
-        file_names=[file_name] if file_name is not None else [],
-    )
+    file_mime_type = inc_data.get("file_mime_type", "text/plain")
+    file_name = inc_data.get("file_name", "attachment.txt")
 
-    print(f"\n  [1/3] INPUT")
-    print(f"    reporter : {incident.reporter_email}")
-    print(f"    text     : {incident.text_desc[:100].strip()}...")
-    if incident.file_names:
-        print(f"    file     : {incident.file_names[0]} ({incident.file_mime_types[0]})")
-    if mock_candidates:
-        c = mock_candidates[0]
-        print(f"    [mock candidates] {c['incident_id']} — similarity={c['similarity_score']} — {c['hours_ago']}h ago")
+    print("\n  [1/2] INPUT")
+    print(f"    reporter : {inc_data['reporter_email']}")
+    print(f"    text     : {inc_data['text_desc'][:100].strip()}...")
+    if file_content is not None:
+        print(f"    file     : {file_name} ({file_mime_type})")
 
-    # Preprocessing
-    print(f"\n  [2/3] PREPROCESSING")
-    preprocessed = await preprocess_incident(incident)
-    preprocessed.request_id = f"demo-{name}-001"
-    print(f"    request_id : {preprocessed.request_id}")
-    print(f"    consolidated ({len(preprocessed.consolidated_text)} chars)")
-    if preprocessed.file_metadata.extracted_text:
-        preview = preprocessed.file_metadata.extracted_text[:80].replace("\n", " ")
-        print(f"    file_text  : {preview}...")
+    # Build multipart form data
+    data = {
+        "text_desc": inc_data["text_desc"],
+        "reporter_email": inc_data["reporter_email"],
+    }
+    files = []
+    if file_content is not None:
+        files.append(("file_attachments", (file_name, file_content, file_mime_type)))
 
-    # Workflow
-    print(f"\n  [3/3] WORKFLOW  (classify → router → dispatch_tools → ticketing)")
-    workflow = SREIncidentWorkflow(timeout=120)
-    ticket = await workflow.run(preprocessed=preprocessed)
+    url = f"{base_url}/api/ingest"
+    print(f"\n  [2/2] POST {url}")
 
-    # Resultado
-    print(f"\n{'─' * 72}")
-    print(f"  TICKET GENERADO")
-    print(f"    ticket_id  : {ticket.ticket_id}")
-    print(f"    url        : {ticket.ticket_url}")
-    print(f"    action     : {ticket.action}")
-    print(f"    reporter   : {ticket.reporter_email}")
-    print(f"{'─' * 72}")
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        response = await client.post(url, data=data, files=files if files else None)
 
-    if mock_candidates:
-        _restore_candidates()
+    if response.status_code != 200:
+        print(f"\n  ERROR {response.status_code}: {response.text}")
+        return {"error": response.status_code, "detail": response.text}
 
-    return ticket
+    result = response.json()
+
+    dash = "─" * 72
+    print(f"\n{dash}")
+    print("  RESPUESTA")
+    print(f"    status     : {result.get('status')}")
+    print(f"    ticket_id  : {result.get('ticket_id')}")
+    print(f"    ticket_url : {result.get('ticket_url')}")
+    print(f"    action     : {result.get('action')}")
+    print(f"    request_id : {result.get('request_id')}")
+    print(dash)
+
+    return result
 
 
 async def main() -> None:
+    base_url = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
     scenario_name = os.getenv("SCENARIO", "default").lower()
+
+    print(f"[config] API_BASE_URL = {base_url}")
 
     if scenario_name == "all":
         for name in SCENARIOS:
-            await run_scenario(name, SCENARIOS[name])
+            await run_scenario(name, SCENARIOS[name], base_url)
     elif scenario_name in SCENARIOS:
-        await run_scenario(scenario_name, SCENARIOS[scenario_name])
+        await run_scenario(scenario_name, SCENARIOS[scenario_name], base_url)
     else:
         print(f"Escenario desconocido: '{scenario_name}'")
         print(f"Disponibles: {', '.join(SCENARIOS.keys())}, all")
