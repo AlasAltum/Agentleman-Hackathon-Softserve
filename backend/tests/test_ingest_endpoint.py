@@ -4,19 +4,11 @@ from io import BytesIO
 from textwrap import dedent
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 
 from src.api.entrypoint import app
-from src.workflow.models import (
-    ClassificationResult,
-    IncidentInput,
-    IncidentType,
-    PreprocessedIncident,
-    Severity,
-    TriageResult,
-)
+from src.workflow.models import IncidentInput, PreprocessedIncident
 
 
 @pytest.fixture
@@ -147,16 +139,86 @@ class TestJiraResolutionWebhook:
             },
         }
 
-        with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle:
+        with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle, patch(
+            "src.api.routes.incident_routes._notify_team"
+        ) as mock_notify:
             response = await async_client.post("/api/webhook/jira/resolved", json=webhook_payload)
 
         assert response.status_code == 200
         assert response.json() == {"status": "resolution_processed", "ticket_id": "SRE-321"}
         mock_handle.assert_called_once()
         resolution_payload = mock_handle.call_args.args[0]
+        mock_notify.assert_called_once_with(
+            request_id="unknown",
+            resolution_payload=resolution_payload,
+        )
         assert resolution_payload.ticket_id == "SRE-321"
         assert resolution_payload.resolved_by == "Jane Ops"
         assert resolution_payload.resolution_notes.startswith("Jira webhook status transition: In Progress -> Done.")
+
+    @pytest.mark.asyncio
+    async def test_resolution_webhook_extracts_reporter_email_from_issue_description(self, async_client):
+        webhook_payload = {
+            "webhookEvent": "jira:issue_updated",
+            "user": {
+                "displayName": "Jane Ops",
+                "accountType": "atlassian",
+            },
+            "issue": {
+                "key": "SRE-324",
+                "fields": {
+                    "summary": "Checkout API returns 500 after payment confirmation",
+                    "status": {
+                        "name": "Done",
+                        "statusCategory": {"key": "done"},
+                    },
+                    "description": {
+                        "version": 1,
+                        "type": "doc",
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [
+                                    {"type": "text", "text": "Reporter email: engineer@company.com"}
+                                ],
+                            }
+                            ,
+                            {
+                                "type": "paragraph",
+                                "content": [
+                                    {"type": "text", "text": "Request ID: req-324"}
+                                ],
+                            }
+                        ],
+                    },
+                },
+            },
+            "changelog": {
+                "items": [
+                    {
+                        "field": "status",
+                        "fromString": "In Progress",
+                        "toString": "Done",
+                    }
+                ]
+            },
+        }
+
+        with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle, patch(
+            "src.api.routes.incident_routes._notify_team"
+        ) as mock_notify:
+            response = await async_client.post("/api/webhook/jira/resolved", json=webhook_payload)
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "resolution_processed", "ticket_id": "SRE-324"}
+        mock_handle.assert_called_once()
+        resolution_payload = mock_handle.call_args.args[0]
+        assert resolution_payload.reporter_email == "engineer@company.com"
+        assert resolution_payload.request_id == "req-324"
+        mock_notify.assert_called_once_with(
+            request_id="req-324",
+            resolution_payload=resolution_payload,
+        )
 
     @pytest.mark.asyncio
     async def test_ignores_non_human_resolution_transition(self, async_client):

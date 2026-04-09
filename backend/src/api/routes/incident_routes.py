@@ -1,20 +1,28 @@
+import re
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
-from typing import List
+from typing import Any, List
 from src.guardrails import GuardrailsEngine
 from src.guardrails.models import ThreatLevel
 from src.guardrails.relevance_guardrail import RelevanceGuardrail
 from src.guardrails.validators import ContentTypeGuardrail
 from src.utils.logger import logger, bind_request_context, generate_request_id
 from src.utils.tracing import start_run
-from src.workflow.models import IncidentInput, PreprocessedIncident, ResolutionPayload
+from src.workflow.models import IncidentInput, ResolutionPayload
 from src.workflow.phases.preprocessing import preprocess_incident
 from src.workflow.phases.resolution import handle_resolution
+from src.workflow.phases.ticketing import _notify_team
 from src.workflow.sre_workflow import SREIncidentWorkflow
 import structlog
 
 router = APIRouter(prefix="/api")
 
 _MAX_FILES = 5
+_REPORTER_EMAIL_RE = re.compile(
+    r"reporter email:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
+    re.IGNORECASE,
+)
+_REQUEST_ID_RE = re.compile(r"request id:\s*([A-Z0-9._:-]+)", re.IGNORECASE)
 
 
 @router.post("/ingest")
@@ -136,6 +144,10 @@ async def on_ticket_resolved(payload: dict[str, Any]):
     resolution_payload = _build_resolution_payload(payload)
     # The webhook arrives after Jira already resolved the issue, so we only trigger the local post-resolution flow here.
     handle_resolution(resolution_payload)
+    _notify_team(
+        request_id=resolution_payload.request_id or "unknown",
+        resolution_payload=resolution_payload,
+    )
     return {"status": "resolution_processed", "ticket_id": resolution_payload.ticket_id}
 
 
@@ -178,6 +190,8 @@ def _build_resolution_payload(payload: dict[str, Any]) -> ResolutionPayload:
         ticket_id=issue_key,
         resolved_by=_extract_actor_name(payload),
         resolution_notes=notes,
+        reporter_email=_extract_reporter_email(payload),
+        request_id=_extract_request_id(payload),
     )
 
 
@@ -247,6 +261,74 @@ def _extract_issue_summary(payload: dict[str, Any]) -> str | None:
     if not isinstance(fields, dict):
         return None
     return _clean_string(fields.get("summary"))
+
+
+def _extract_reporter_email(payload: dict[str, Any]) -> str | None:
+    description_text = _extract_issue_description_text(payload)
+    if not description_text:
+        return None
+
+    match = _REPORTER_EMAIL_RE.search(description_text)
+    if match is None:
+        return None
+    return _clean_string(match.group(1), lowercase=True)
+
+
+def _extract_request_id(payload: dict[str, Any]) -> str | None:
+    description_text = _extract_issue_description_text(payload)
+    if not description_text:
+        return None
+
+    match = _REQUEST_ID_RE.search(description_text)
+    if match is None:
+        return None
+    return _clean_string(match.group(1))
+
+
+def _extract_issue_description_text(payload: dict[str, Any]) -> str | None:
+    issue = payload.get("issue")
+    if not isinstance(issue, dict):
+        return None
+
+    fields = issue.get("fields")
+    if not isinstance(fields, dict):
+        return None
+
+    description = fields.get("description")
+    if isinstance(description, str):
+        return description
+
+    fragments = _collect_text_fragments(description)
+    if not fragments:
+        return None
+    return "\n".join(fragment for fragment in fragments if fragment)
+
+
+def _collect_text_fragments(node: Any) -> list[str]:
+    if isinstance(node, str):
+        cleaned = node.strip()
+        return [cleaned] if cleaned else []
+
+    if isinstance(node, list):
+        fragments: list[str] = []
+        for item in node:
+            fragments.extend(_collect_text_fragments(item))
+        return fragments
+
+    if isinstance(node, dict):
+        fragments: list[str] = []
+        text = node.get("text")
+        if isinstance(text, str):
+            cleaned = text.strip()
+            if cleaned:
+                fragments.append(cleaned)
+        for value in node.values():
+            if value is text:
+                continue
+            fragments.extend(_collect_text_fragments(value))
+        return fragments
+
+    return []
 
 
 def _extract_actor_name(payload: dict[str, Any]) -> str:

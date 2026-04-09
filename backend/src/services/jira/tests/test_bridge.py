@@ -33,11 +33,10 @@ def _preprocessed_incident(security_flag: str | None = None) -> PreprocessedInci
         original=IncidentInput(
             text_desc="Checkout API returns 500 after payment confirmation",
             reporter_email="reporter@example.com",
-            file_name="incident.log",
-            file_mime_type="text/plain",
         ),
         consolidated_text="Checkout API returns 500 after payment confirmation in the production checkout flow.",
         security_flag=security_flag,
+        request_id="req-123",
     )
 
 
@@ -101,12 +100,14 @@ def test_create_ticket_creates_new_issue(monkeypatch):
     assert result.ticket_id == "SRE-123"
     assert result.action == "created"
     assert result.reporter_email == "reporter@example.com"
+    assert result.request_id == "req-123"
     assert captured["summary"] == "Incident report - Checkout API returns 500 after payment confirmation"
     labels = cast(list[str], captured["labels"])
     assert "incident-new_incident" in labels
     assert "severity-high" in labels
     assert "security-review" in labels
     description_text = str(captured["description"])
+    assert "Request ID: req-123" in description_text
     assert "Original report:" in description_text
     assert "Technical summary:" not in description_text
 

@@ -84,6 +84,7 @@ def create_ticket(
             ticket_url=issue.issue_url,
             action="created",
             reporter_email=reporter_email,
+            request_id=active_request_id,
         )
 
 
@@ -198,6 +199,7 @@ def _build_issue_document(preprocessed: PreprocessedIncident) -> dict[str, Any]:
     consolidated_text = preprocessed.consolidated_text.strip()
     paragraphs = [
         f"Reporter email: {preprocessed.original.reporter_email}",
+        f"Request ID: {preprocessed.request_id or 'unknown'}",
         "Original report:",
         original_text,
     ]
@@ -206,8 +208,10 @@ def _build_issue_document(preprocessed: PreprocessedIncident) -> dict[str, Any]:
         paragraphs.append("Preprocessed incident context:")
         paragraphs.append(consolidated_text[:2000])
 
-    if preprocessed.file_metadata.mime_type:
-        paragraphs.append(f"Attached content type: {preprocessed.file_metadata.mime_type}")
+    if preprocessed.file_metadata.mime_types:
+        paragraphs.append(
+            "Attached content types: " + ", ".join(preprocessed.file_metadata.mime_types)
+        )
 
     if preprocessed.security_flag:
         paragraphs.append(f"Security flag: {preprocessed.security_flag}")
