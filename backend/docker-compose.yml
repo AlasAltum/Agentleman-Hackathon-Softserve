@@ -3,7 +3,7 @@ services:
     image: postgres:15-alpine
     container_name: hackaton-db
     env_file:
-      - .env
+      - ../.env
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -11,6 +11,16 @@ services:
     command: -p ${POSTGRES_PORT}
     ports:
       - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_BDNAME} -p ${POSTGRES_PORT}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -33,8 +43,11 @@ services:
       APP_ENV: ${APP_ENV:-prod}
       APP_PORT: ${APP_PORT}
     env_file:
-      - .env
+      - ../.env
     volumes:
       - .:/app
     ports:
       - "${EXPOSED_APP_PORT}:${APP_PORT}"
+
+volumes:
+  postgres_data:
