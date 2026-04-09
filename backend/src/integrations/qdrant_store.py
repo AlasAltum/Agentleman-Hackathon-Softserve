@@ -45,10 +45,6 @@ def get_qdrant_index():
         from qdrant_client import AsyncQdrantClient
         from llama_index.vector_stores.qdrant import QdrantVectorStore
         from llama_index.core import VectorStoreIndex, Settings
-        from llama_index.embeddings.fastembed import FastEmbedEmbedding
-
-        # Configure FastEmbedEmbedding (same as setup.py - no API key needed)
-        Settings.embed_model = FastEmbedEmbedding(model_name="BAAI/bge-small-en-v1.5")
 
         # Use async client for retrieval
         aclient = AsyncQdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
