@@ -46,7 +46,7 @@ def _select_tools(
     if any(kw in text for kw in _TELEMETRY_KEYWORDS) and "telemetry_analyzer" not in already_called:
         selected.append("telemetry_analyzer")
 
-    logger.info("tools_selected", tools=selected)
+    logger.info("tools_selected", request_id=preprocessed.request_id or "unknown", tools=selected)
     return selected
 
 
@@ -55,13 +55,14 @@ async def _dispatch_tools(
     preprocessed: PreprocessedIncident,
 ) -> list[ToolResult]:
     """Dispatch selected tools concurrently and collect results."""
+    request_id = preprocessed.request_id or "unknown"
     coroutines = [
         _TOOL_DISPATCH[tool](preprocessed.consolidated_text)
         for tool in tools
         if tool in _TOOL_DISPATCH
     ]
     results = await asyncio.gather(*coroutines)
-    logger.info("tools_completed", count=len(results))
+    logger.info("tools_completed", request_id=request_id, count=len(results))
     return list(results)
 
 

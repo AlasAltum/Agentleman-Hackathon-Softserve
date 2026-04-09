@@ -1,8 +1,6 @@
 import contextvars
 import json
 import logging
-import logging.handlers
-import os
 import sys
 from uuid_extensions import uuid7
 import time
@@ -10,10 +8,6 @@ from functools import wraps
 from typing import Any, Callable
 
 import structlog
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # ---------------------------------------------------------------------------
 # MLflow log capture — one capture buffer per async context (request-scoped)
@@ -57,27 +51,13 @@ def generate_request_id() -> str:
     return str(uuid7())
 
 def configure_logging() -> None:
-    _logs_dir = os.getenv("LOG_DIR", "logs")
-    os.makedirs(_logs_dir, exist_ok=True)
-
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
-    # stdout handler (existing behaviour)
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(logging.Formatter("%(message)s"))
 
-    # rotating file handler — max 10 MB, keep 5 backups
-    file_handler = logging.handlers.RotatingFileHandler(
-        filename=os.path.join(_logs_dir, "app.jsonl"),
-        maxBytes=10_000_000,
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(logging.Formatter("%(message)s"))
-
     root_logger.addHandler(stdout_handler)
-    root_logger.addHandler(file_handler)
 
     structlog.configure(
         processors=[

@@ -68,12 +68,11 @@ async def ingest_incident(
     )
 
     try:
-        preprocessed = await preprocess_incident(incident)
+        preprocessed = await preprocess_incident(incident, request_id=request_id)
     except ValueError as exc:
-        logger.warning("blocked_file_type", reason=str(exc))
+        logger.warning("blocked_file_type", request_id=request_id, reason=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
-    preprocessed.request_id = request_id
-    logger.info("preprocessing_complete", text_length=len(preprocessed.consolidated_text))
+    logger.info("preprocessing_complete", request_id=request_id, text_length=len(preprocessed.consolidated_text))
 
     # Pattern-based guardrails on the full consolidated text
     engine_result = GuardrailsEngine().validate(preprocessed.consolidated_text)

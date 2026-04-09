@@ -52,6 +52,7 @@ async def _llm_summarize(triage: TriageResult, preprocessed: PreprocessedInciden
         tool_findings=tool_findings,
     )
 
+    request_id = preprocessed.request_id or "unknown"
     try:
         messages = [ChatMessage(role="user", content=prompt)]
         response = await asyncio.to_thread(llm.chat, messages)
@@ -69,7 +70,7 @@ async def _llm_summarize(triage: TriageResult, preprocessed: PreprocessedInciden
                     result[last_key] += "\n" + line
         return result
     except Exception as exc:
-        logger.warning("ticket_llm_summarize_failed", error=str(exc))
+        logger.warning("ticket_llm_summarize_failed", request_id=request_id, error=str(exc))
         return {}
 
 
@@ -157,13 +158,15 @@ async def _create_new_ticket(
     if preprocessed:
         llm_summary = await _llm_summarize(triage, preprocessed)
 
+    request_id = preprocessed.request_id if preprocessed else "unknown"
     title = _build_ticket_title(triage, llm_summary)
     description = _build_ticket_description(triage, preprocessed, llm_summary)
-    logger.info("ticket_created", ticket_id=ticket_id, severity=triage.severity, title=title)
+    logger.info("ticket_created", request_id=request_id, ticket_id=ticket_id, severity=triage.severity, title=title)
 
     if preprocessed and preprocessed.security_flag:
         logger.warning(
             "ticket_from_flagged_input",
+            request_id=request_id,
             ticket_id=ticket_id,
             security_flag=preprocessed.security_flag,
         )
@@ -178,31 +181,34 @@ async def _create_new_ticket(
 
 
 
-def _notify_team(ticket: TicketInfo, triage: TriageResult) -> None:
+def _notify_team(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
     """Notify technical team via Slack and Email."""
     logger.info(
         "team_notification",
+        request_id=request_id,
         ticket_id=ticket.ticket_id,
         severity=triage.severity,
     )
-    _send_slack_notification(ticket, triage)
-    _send_team_email(ticket, triage)
+    _send_slack_notification(ticket, triage, request_id)
+    _send_team_email(ticket, triage, request_id)
 
 
-def _send_slack_notification(ticket: TicketInfo, triage: TriageResult) -> None:
+def _send_slack_notification(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
     """Stub: send Slack message to SRE channel until Slack integration is wired."""
     logger.info(
         "slack_notification",
+        request_id=request_id,
         channel="#sre-alerts",
         ticket_id=ticket.ticket_id,
         severity=triage.severity,
     )
 
 
-def _send_team_email(ticket: TicketInfo, triage: TriageResult) -> None:
+def _send_team_email(ticket: TicketInfo, triage: TriageResult, request_id: str = "unknown") -> None:
     """Stub: send email to SRE team distribution list until email integration is wired."""
     logger.info(
         "email_notification",
+        request_id=request_id,
         recipient="sre-team@company.com",
         ticket_id=ticket.ticket_id,
         severity=triage.severity,
