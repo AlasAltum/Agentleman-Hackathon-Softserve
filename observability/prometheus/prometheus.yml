@@ -14,9 +14,10 @@ scrape_configs:
   - job_name: observability_test_metrics
     metrics_path: /metrics
     static_configs:
-      # Use port 9464 to avoid colliding with the frontend
+      # Use port 9464 to avoid colliding with the frontend.
+      # The concrete target is injected by docker-compose at container startup.
       - targets:
-          - host.docker.internal:9464
+          - __OBSERVABILITY_METRICS_TARGET__
         labels:
           service: observability-test
           component: metrics-emitter
