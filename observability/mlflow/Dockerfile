@@ -30,7 +30,7 @@ EXPOSE 5001
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD curl -f http://localhost:5001/health || exit 1
 
 # Default command
 # --default-artifact-root mlflow-artifacts:// → clients use HTTP proxy (no direct filesystem access needed)
@@ -38,7 +38,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # --serve-artifacts                          → server acts as artifact proxy
 CMD ["mlflow", "server", \
      "--host", "0.0.0.0", \
-     "--port", "5000", \
+     "--port", "5001", \
      "--backend-store-uri", "sqlite:////mlflow/mlflow.db", \
      "--artifacts-destination", "/mlflow/artifacts", \
      "--default-artifact-root", "mlflow-artifacts://", \
