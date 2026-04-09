@@ -8,7 +8,7 @@ import mlflow
 from mlflow.entities import SpanType
 
 _MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "sre-workflow")
-_MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+_MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5001")
 _MLFLOW_AUTOLOG_ENABLED = os.getenv("MLFLOW_AUTOLOG_ENABLED", "true").lower() == "true"
 
 _configured = False

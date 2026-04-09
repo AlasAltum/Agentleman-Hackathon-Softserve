@@ -2,27 +2,32 @@
     {
         "id": "SRE-001",
         "description": "DNS Resolution failure for SMTP provider.",
-        "resolution": "Updated local /etc/hosts as temporary fix and flushed CoreDNS cache."
+        "resolution": "Updated local /etc/hosts as temporary fix and flushed CoreDNS cache.",
+        "image_path": "mock_images/SRE_001.png"
     },
     {
         "id": "SRE-002",
         "description": "Load Balancer state table saturation (UDP Flood).",
-        "resolution": "Implemented rate-limiting at the edge firewall and adjusted connection timeout."
+        "resolution": "Implemented rate-limiting at the edge firewall and adjusted connection timeout.",
+        "image_path": "mock_images/SRE_002.png"
     },
     {
         "id": "SRE-003",
         "description": "NPE in CheckoutService during VAT calculation.",
-        "resolution": "Added null check for user country code before calling TaxService API."
+        "resolution": "Added null check for user country code before calling TaxService API.",
+        "image_path": "mock_images/SRE_003.png"
     },
     {
         "id": "SRE-004",
         "description": "Database deadlock in transactions table.",
-        "resolution": "Applied row-level locking and reordered the update sequence in the worker script."
+        "resolution": "Applied row-level locking and reordered the update sequence in the worker script.",
+        "image_path": "mock_images/SRE_004.png"
     },
     {
         "id": "SRE-005",
         "description": "High latency in Inventory service due to Redis connection leak.",
-        "resolution": "Refactored the connection pooler to ensure clients are returned to the pool in a finally block."
+        "resolution": "Refactored the connection pooler to ensure clients are returned to the pool in a finally block.",
+        "image_path": "mock_images/SRE_005.png"
     },
     {
         "id": "SRE-007",
@@ -42,7 +47,8 @@
     {
         "id": "SRE-010",
         "description": "Brute force attack on login endpoint.",
-        "resolution": "Enabled Cloudflare WAF rules to block the offending CIDR block and enforced MFA."
+        "resolution": "Enabled Cloudflare WAF rules to block the offending CIDR block and enforced MFA.",
+        "image_path": "mock_images/SRE_010.png"
     },
     {
         "id": "SRE-011",
@@ -67,7 +73,8 @@
     {
         "id": "SRE-015",
         "description": "WebSocket handshake failures in Live Chat.",
-        "resolution": "SREreased the proxy_read_timeout and proxy_send_timeout in the Nginx ingress controller."
+        "resolution": "SREreased the proxy_read_timeout and proxy_send_timeout in the Nginx ingress controller.",
+        "image_path": "mock_images/SRE_015.png"
     },
     {
         "id": "SRE-016",
@@ -92,7 +99,8 @@
     {
         "id": "SRE-020",
         "description": "Static image 404s after Nginx config change.",
-        "resolution": "Updated the 'root' directive in the server block to point to the correct directory."
+        "resolution": "Updated the 'root' directive in the server block to point to the correct directory.",
+        "image_path": "mock_images/SRE_020.png"
     },
     {
         "id": "SRE-021",
@@ -117,7 +125,8 @@
     {
         "id": "SRE-025",
         "description": "Buffer overflow in legacy Video Service.",
-        "resolution": "Implemented bounds checking before memory allocation in the processing loop."
+        "resolution": "Implemented bounds checking before memory allocation in the processing loop.",
+        "image_path": "mock_images/SRE_025.png"
     },
     {
         "id": "SRE-026",
@@ -142,7 +151,8 @@
     {
         "id": "SRE-030",
         "description": "Stack overflow in recursive search function.",
-        "resolution": "Converted the recursive function to an iterative approach using a stack data structure."
+        "resolution": "Converted the recursive function to an iterative approach using a stack data structure.",
+        "image_path": "mock_images/SRE_030.png"
     },
     {
         "id": "SRE-031",
@@ -262,7 +272,8 @@
     {
         "id": "SRE-054",
         "description": "Website downtime due to organic traffic surge.",
-        "resolution": "Manually scaled the Kubernetes replica set from 5 to 20 pods and enabled auto-scaling triggers based on CPU utilization."
+        "resolution": "Manually scaled the Kubernetes replica set from 5 to 20 pods and enabled auto-scaling triggers based on CPU utilization.",
+        "image_path": "mock_images/SRE_054.jpeg"
     },
     {
         "id": "SRE-055",

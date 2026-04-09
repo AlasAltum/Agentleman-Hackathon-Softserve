@@ -7,6 +7,6 @@ Current purpose:
 Current runtime behavior:
 - backend store: SQLite at `/mlflow/mlflow.db`
 - artifact root: `/mlflow/artifacts`
-- exposed port: `5000`
+- exposed port: `5001`
 
 The actual trace-producing scripts will be added in later tasks under `observability/test`.

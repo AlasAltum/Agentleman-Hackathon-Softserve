@@ -24,13 +24,13 @@ class Severity(str, Enum):
 class IncidentInput(BaseModel):
     text_desc: str
     reporter_email: str
-    file_content: Optional[bytes] = None
-    file_mime_type: Optional[str] = None
-    file_name: Optional[str] = None
+    file_contents: list[bytes] = []
+    file_mime_types: list[str] = []
+    file_names: list[str] = []
 
 
 class FileMetadata(BaseModel):
-    mime_type: Optional[str] = None
+    mime_types: list[str] = []
     extracted_text: str = ""
 
 
