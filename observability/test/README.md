@@ -30,13 +30,13 @@ The observability smoke-test scripts are:
 ## How this test area works
 
 - `emit_logs.py` will write structured JSON logs to standard output.
-- The scripts write log files under `observability/test/logs/` so Promtail can scrape them from the shared repository mount.
+- The scripts write log files under `observability/test/logs/` so Alloy can scrape them from the shared repository mount.
 - `emit_metrics.py` will expose a local Prometheus endpoint for the stack to scrape.
 - `emit_traces.py` will publish traces to the local MLflow server through the Docker network using the runner service environment.
 
 ## Available scripts
 
-Emit sample structured logs and write them into the Promtail scrape directory:
+Emit sample structured logs and write them into the Alloy scrape directory:
 
 ```bash
 docker compose exec observability-test-runner poetry run python emit_logs.py --output-file logs/emit_logs.log
@@ -70,29 +70,27 @@ The default Prometheus smoke-test target is now the Docker service name `observa
 
 ### 1. Prepare the local env files
 
-From the repository root, create the env files used by the included root compose project:
+From the repository root, create the single env file used by the included root compose project:
 
 ```bash
 cp .env.example .env
-cp backend/.env.example backend/.env
 ```
 
 On Windows PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
-Copy-Item backend/.env.example backend/.env
 ```
 
 Notes:
-- `.env` provides the local Grafana and MLflow settings used by the observability stack.
-- `backend/.env` must exist because the root `docker-compose.yml` includes the backend compose file, even if you only start observability services.
-- The backend-related defaults at the bottom of `.env.example` are needed so the root compose file can interpolate the included backend model cleanly.
+- The root `.env` provides the local Grafana, MLflow, backend, Jira, and notification settings used by the full stack.
+- `backend/.env` is no longer required because the included backend compose file now reads the repository root `.env`.
+- The backend-related defaults in `.env.example` are still needed so the root compose file can interpolate the included backend model cleanly.
 
 ### 2. Start only the observability services from the repository root
 
 ```bash
-docker compose --profile test up -d --build grafana prometheus loki promtail mlflow observability-test-runner
+docker compose --profile test up -d --build grafana prometheus loki alloy mlflow observability-test-runner
 docker compose ps
 ```
 
@@ -106,7 +104,7 @@ Expected result:
 
 ### 3. Run the standalone smoke-test scripts
 
-Emit logs into the Promtail scrape directory:
+Emit logs into the Alloy scrape directory:
 
 ```bash
 docker compose exec observability-test-runner poetry run python emit_logs.py --request-id 018f0c69-acde-7012-8d6a-000000000101 --output-file logs/emit_logs.log
