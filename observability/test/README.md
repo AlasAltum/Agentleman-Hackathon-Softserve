@@ -7,13 +7,17 @@ Purpose:
 
 ## Local setup
 
-From the repository root:
+These smoke tests now run through Docker and Poetry instead of a host-side Python environment.
+
+From the repository root, build the dedicated runner image once:
 
 ```bash
-python -m venv .venv-observability
-source .venv-observability/bin/activate
-pip install -r observability/test/requirements.txt
+docker compose --profile test build observability-test-runner
 ```
+
+The runner uses the same `python:3.12-slim` base image family as the observability Docker stack, and it installs the smoke-test dependencies from `observability/test/pyproject.toml` and `observability/test/poetry.lock` with Poetry.
+
+The command examples below assume the `observability-test-runner` service is already running and execute from `/workspace/observability/test` inside that container. You can start it directly with `docker compose --profile test up -d observability-test-runner`, or by starting the full stack in the runbook below.
 
 ## Expected scripts
 
@@ -26,51 +30,41 @@ The observability smoke-test scripts are:
 ## How this test area works
 
 - `emit_logs.py` will write structured JSON logs to standard output.
-- You can redirect those logs into files under `observability/test/logs/` so Promtail can scrape them.
+- The scripts write log files under `observability/test/logs/` so Promtail can scrape them from the shared repository mount.
 - `emit_metrics.py` will expose a local Prometheus endpoint for the stack to scrape.
-- `emit_traces.py` will publish traces to the local MLflow server using the host-side settings from the root `.env` file.
+- `emit_traces.py` will publish traces to the local MLflow server through the Docker network using the runner service environment.
 
 ## Available scripts
 
 Emit sample structured logs and write them into the Promtail scrape directory:
 
 ```bash
-python observability/test/emit_logs.py --output-file observability/test/logs/emit_logs.log
+docker compose exec observability-test-runner poetry run python emit_logs.py --output-file logs/emit_logs.log
 ```
 
-This writes UTF-8 directly from Python and avoids shell redirection encoding problems.
-
-On Windows PowerShell 5.1, avoid `>` and `Out-File -Encoding utf8` for Loki sample logs:
-- `>` writes UTF-16 and produces the spaced-character effect in Grafana
-- `Out-File -Encoding utf8` writes a UTF-8 BOM, which shows up as `﻿` before the JSON line
-
-If you are using PowerShell 7 and still want shell redirection, use a no-BOM encoding mode instead:
-
-```powershell
-python observability/test/emit_logs.py | Out-File -Encoding utf8NoBOM observability/test/logs/emit_logs.log
-```
+This writes UTF-8 directly from Python inside the runner container and avoids shell redirection encoding problems.
 
 Expose a sample Prometheus endpoint on the port already configured in `observability/prometheus/prometheus.yml`:
 
 ```bash
-python observability/test/emit_metrics.py --port 9464
+docker compose exec observability-test-runner poetry run python emit_metrics.py --port 9464
 ```
 
-The metrics emitter runs until interrupted by default so Prometheus has time to scrape it.
+The metrics emitter runs inside the `observability-test-runner` container until interrupted, so Prometheus can scrape it over the Docker network.
 
 Create a manual MLflow trace with nested phase spans:
 
 ```bash
-python observability/test/emit_traces.py
+docker compose exec observability-test-runner poetry run python emit_traces.py
 ```
 
 Run the combined stack validator. This writes a UTF-8 log file, emits a trace, and keeps a metrics endpoint alive briefly so Prometheus can scrape it:
 
 ```bash
-python observability/test/simulate_stack_check.py --metrics-wait-seconds 25
+docker compose exec observability-test-runner poetry run python simulate_stack_check.py --metrics-wait-seconds 25
 ```
 
-If Docker is running through WSL and Prometheus cannot reach a Windows-hosted emitter on `host.docker.internal:9464`, run `emit_metrics.py` and `simulate_stack_check.py` from an environment that is reachable by the Docker engine.
+The default Prometheus smoke-test target is now the Docker service name `observability-test-runner:9464`. Only override `OBSERVABILITY_METRICS_TARGET` if you intentionally run the metrics emitter outside Docker.
 
 ## Validation Runbook
 
@@ -98,7 +92,7 @@ Notes:
 ### 2. Start only the observability services from the repository root
 
 ```bash
-docker compose up -d grafana prometheus loki promtail mlflow
+docker compose --profile test up -d --build grafana prometheus loki promtail mlflow observability-test-runner
 docker compose ps
 ```
 
@@ -107,6 +101,7 @@ Expected result:
 - Prometheus listens on `http://localhost:9090`
 - Loki listens on `http://localhost:3100`
 - MLflow listens on `http://localhost:5000`
+- `observability-test-runner` stays running so Docker can execute the smoke-test scripts with Poetry
 - the MLflow container reaches `healthy` status
 
 ### 3. Run the standalone smoke-test scripts
@@ -114,25 +109,25 @@ Expected result:
 Emit logs into the Promtail scrape directory:
 
 ```bash
-python observability/test/emit_logs.py --request-id 018f0c69-acde-7012-8d6a-000000000101 --output-file observability/test/logs/emit_logs.log
+docker compose exec observability-test-runner poetry run python emit_logs.py --request-id 018f0c69-acde-7012-8d6a-000000000101 --output-file logs/emit_logs.log
 ```
 
 Expose the Prometheus metrics endpoint:
 
 ```bash
-python observability/test/emit_metrics.py --port 9464
+docker compose exec observability-test-runner poetry run python emit_metrics.py --port 9464
 ```
 
 Emit a manual MLflow trace:
 
 ```bash
-python observability/test/emit_traces.py --request-id 018f0c69-acde-7012-8d6a-000000000102
+docker compose exec observability-test-runner poetry run python emit_traces.py --request-id 018f0c69-acde-7012-8d6a-000000000102
 ```
 
 Run the combined validator with one correlated request id across logs and traces, while keeping metrics alive briefly for scraping:
 
 ```bash
-python observability/test/simulate_stack_check.py --request-id 018f0c69-acde-7012-8d6a-000000000103 --metrics-wait-seconds 25
+docker compose exec observability-test-runner poetry run python simulate_stack_check.py --request-id 018f0c69-acde-7012-8d6a-000000000103 --metrics-wait-seconds 25
 ```
 
 ### 4. Verify success in each tool
@@ -150,7 +145,7 @@ Grafana and Loki:
 
 Prometheus:
 - Open `http://localhost:9090`.
-- Check `Status -> Targets` and confirm the metrics emitter target is `UP` when the emitter or combined validator is running from a Docker-reachable environment.
+- Check `Status -> Targets` and confirm the `observability-test-runner:9464` target is `UP` when the emitter or combined validator is running.
 - Query:
 
 ```text
@@ -178,7 +173,7 @@ bash observability/reset-data.sh --restart
 
 ## Current dependency scope
 
-The dependencies here stay focused on:
+The Poetry dependencies here stay focused on:
 - structured logging
 - Prometheus metrics
 - MLflow tracing
