@@ -20,7 +20,7 @@ from src.workflow.phases.routing import (
     _dispatch_tools,
     _select_tools,
 )
-from src.workflow.phases.ticketing import _create_or_update_ticket, _notify_team
+from src.workflow.phases.ticketing import _create_new_ticket, _notify_team
 
 
 class SREIncidentWorkflow(Workflow):
@@ -179,7 +179,7 @@ class SREIncidentWorkflow(Workflow):
         request_id = await ctx.store.get("request_id", default="unknown")
         log_phase_start("ticketing", component="workflow", request_id=request_id)
         reporter_email = ev.preprocessed.original.reporter_email
-        ticket = _create_or_update_ticket(ev.triage, reporter_email, ev.preprocessed)
+        ticket = await _create_new_ticket(ev.triage, reporter_email, ev.preprocessed)
         _notify_team(ticket, ev.triage)
         log_phase_success("ticketing", latency_ms=0, ticket_id=ticket.ticket_id, action=ticket.action, request_id=request_id)
         return StopEvent(result=ticket)
