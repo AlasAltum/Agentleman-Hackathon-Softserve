@@ -2,7 +2,7 @@ import uuid
 from typing import Optional
 
 from src.utils.logger import logger
-from src.workflow.models import IncidentType, PreprocessedIncident, TicketInfo, TriageResult
+from src.workflow.models import PreprocessedIncident, TicketInfo, TriageResult
 
 
 def _create_or_update_ticket(
@@ -10,9 +10,7 @@ def _create_or_update_ticket(
     reporter_email: str,
     preprocessed: Optional[PreprocessedIncident] = None,
 ) -> TicketInfo:
-    """Create a new ticket or update an existing one for alert storms."""
-    if triage.classification.incident_type == IncidentType.ALERT_STORM:
-        return _update_existing_ticket(triage, reporter_email, preprocessed)
+    """Always create a new Jira ticket regardless of incident type."""
     return _create_new_ticket(triage, reporter_email, preprocessed)
 
 
@@ -42,35 +40,6 @@ def _create_new_ticket(
         reporter_email=reporter_email,
     )
 
-
-def _update_existing_ticket(
-    triage: TriageResult,
-    reporter_email: str,
-    preprocessed: Optional[PreprocessedIncident] = None,
-) -> TicketInfo:
-    """Add a comment to the existing ticket for an ongoing alert storm.
-
-    Stub: logs intent and returns mock update until Jira integration is wired.
-    """
-    existing_id = (
-        triage.classification.top_candidates[0].incident_id
-        if triage.classification.top_candidates
-        else "SRE-UNKNOWN"
-    )
-    logger.info("ticket_updated", ticket_id=existing_id, reason="alert_storm_deduplication")
-
-    if preprocessed and preprocessed.security_flag:
-        logger.warning(
-            "ticket_updated_from_flagged_input",
-            ticket_id=existing_id,
-            security_flag=preprocessed.security_flag,
-        )
-    return TicketInfo(
-        ticket_id=existing_id,
-        ticket_url=f"https://jira.example.com/browse/{existing_id}",
-        action="updated",
-        reporter_email=reporter_email,
-    )
 
 
 def _notify_team(ticket: TicketInfo, triage: TriageResult) -> None:
