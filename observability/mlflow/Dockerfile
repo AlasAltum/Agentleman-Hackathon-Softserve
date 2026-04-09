@@ -26,7 +26,7 @@ RUN useradd -m -u 1000 mlflow \
 USER mlflow
 
 # Expose MLflow port
-EXPOSE 5000
+EXPOSE 5001
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
