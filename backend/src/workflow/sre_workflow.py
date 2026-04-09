@@ -31,9 +31,9 @@ class SREIncidentWorkflow(Workflow):
         rerank_candidates     — score-based reranking to Top-N
         classify_incident     — cluster & time judge → Alert Storm / Regression / New
 
-    Triage pipeline (Steps 4–6):
+    Triage pipeline (Steps 4–5):
         router                — decides which tools to dispatch (event-driven loop)
-        dispatch_tools        — executes selected tools in parallel
+        dispatch_tools        — executes selected tools in parallel, feeds back to router
         create_ticket_and_notify — ticket creation/update + team alerts
 
     Event flow:
@@ -42,8 +42,7 @@ class SREIncidentWorkflow(Workflow):
           → rerank_candidates    (RankedCandidatesEvent)
           → classify_incident    (ContextEnrichedEvent)
           → router               (ToolCallEvent | TriageCompleteEvent)
-          → dispatch_tools       (ToolResultEvent)
-          → [loops back to router via ToolResultEvent]
+          → dispatch_tools       (ToolResultEvent → router loop)
           → create_ticket_and_notify (StopEvent)
     """
 
@@ -171,24 +170,7 @@ class SREIncidentWorkflow(Workflow):
             iteration=ev.iteration + 1,
         )
 
-    # ── Step 6: Results Processor ─────────────────────────────────────────────
-
-    @step
-    async def process_results(
-        self, ctx: Context, ev: ToolResultEvent
-    ) -> ToolResultEvent:
-        request_id = await ctx.store.get("request_id", default="unknown")
-        log_phase_start("process_results", component="workflow", request_id=request_id)
-
-        log_phase_success("process_results", latency_ms=0, results_count=len(ev.tool_results), request_id=request_id)
-        return ToolResultEvent(
-            preprocessed=ev.preprocessed,
-            classification=ev.classification,
-            tool_results=ev.tool_results,
-            iteration=ev.iteration,
-        )
-
-    # ── Step 7: Ticket + Notification ────────────────────────────────────────
+    # ── Step 6: Ticket + Notification ────────────────────────────────────────
 
     @step
     async def create_ticket_and_notify(
