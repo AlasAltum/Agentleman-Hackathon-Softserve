@@ -11,7 +11,15 @@ RUN pipx inject poetry poetry-plugin-bundle
 WORKDIR /src
 COPY . .
 
-RUN poetry bundle venv --python=/usr/local/bin/python3 --only=main /venv
+RUN python3 -m venv /venv
+
+# 2. Establecemos las variables de entorno para "activar" el venv. 
+# Así Poetry sabrá que debe instalar todo aquí adentro en lugar de crear uno propio.
+ENV VIRTUAL_ENV=/venv \
+    PATH="/venv/bin:$PATH"
+
+# 3. Usamos el comando nativo de poetry install, que SÍ reconoce --extras
+RUN poetry install --only main --extras all
 
 FROM python:3.12-slim
 

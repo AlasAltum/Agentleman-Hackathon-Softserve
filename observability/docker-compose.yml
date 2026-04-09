@@ -14,8 +14,6 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
-    networks:
-      - observability
 
   prometheus:
     image: prom/prometheus:latest
@@ -37,8 +35,6 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml.tmpl:ro
       - prometheus_data:/prometheus
-    networks:
-      - observability
 
   loki:
     image: grafana/loki:latest
@@ -49,21 +45,20 @@ services:
     volumes:
       - ./loki/config.yml:/etc/loki/config.yml:ro
       - loki_data:/loki
-    networks:
-      - observability
 
-  promtail:
-    image: grafana/promtail:latest
+  alloy:
+    image: grafana/alloy:latest
     command:
-      - "-config.file=/etc/promtail/config.yml"
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
     depends_on:
       - loki
     volumes:
-      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - ./test/logs:/var/observability/test/logs:ro
-    networks:
-      - observability
-    # Local smoke-test logs are scraped from /var/observability/test/logs.
+      - alloy_data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock
 
   observability-test-runner:
     build:
@@ -81,8 +76,6 @@ services:
       POETRY_VIRTUALENVS_CREATE: "false"
     volumes:
       - ..:/workspace
-    networks:
-      - observability
 
   mlflow:
     build:
@@ -91,15 +84,16 @@ services:
     command: >-
       mlflow server
       --host 0.0.0.0
-      --port 5000
+      --port 5001
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --artifacts-destination /mlflow/artifacts
+      --allowed-hosts mlflow,mlflow:5001,localhost,localhost:5001
     environment:
       - MLFLOW_BACKEND_STORE_URI=sqlite:////mlflow/mlflow.db
       - MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts
       - MLFLOW_SERVE_ARTIFACTS=true
     ports:
-      - "5001:5000"
+      - "5001:5001"
     volumes:
       - mlflow_data:/mlflow
     healthcheck:
@@ -108,15 +102,10 @@ services:
       timeout: 30s
       retries: 3
       start_period: 59s
-    networks:
-      - observability
 
 volumes:
+  alloy_data:
   grafana_data:
   prometheus_data:
   loki_data:
   mlflow_data:
-
-networks:
-  observability:
-    driver: bridge

@@ -116,6 +116,127 @@ class TestIngestEndpointBasic:
         assert response.status_code == 422
 
 
+class TestJiraResolutionWebhook:
+    @pytest.mark.asyncio
+    async def test_processes_human_resolution_transition(self, async_client):
+        webhook_payload = {
+            "webhookEvent": "jira:issue_updated",
+            "user": {
+                "displayName": "Jane Ops",
+                "emailAddress": "jane.ops@example.com",
+                "accountType": "atlassian",
+            },
+            "issue": {
+                "key": "SRE-321",
+                "fields": {
+                    "summary": "Checkout API returns 500 after payment confirmation",
+                    "status": {
+                        "name": "Done",
+                        "statusCategory": {"key": "done"},
+                    },
+                },
+            },
+            "changelog": {
+                "items": [
+                    {
+                        "field": "status",
+                        "fromString": "In Progress",
+                        "toString": "Done",
+                    }
+                ]
+            },
+        }
+
+        with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle:
+            response = await async_client.post("/api/webhook/jira/resolved", json=webhook_payload)
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "resolution_processed", "ticket_id": "SRE-321"}
+        mock_handle.assert_called_once()
+        resolution_payload = mock_handle.call_args.args[0]
+        assert resolution_payload.ticket_id == "SRE-321"
+        assert resolution_payload.resolved_by == "Jane Ops"
+        assert resolution_payload.resolution_notes.startswith("Jira webhook status transition: In Progress -> Done.")
+
+    @pytest.mark.asyncio
+    async def test_ignores_non_human_resolution_transition(self, async_client):
+        webhook_payload = {
+            "webhookEvent": "jira:issue_updated",
+            "user": {
+                "displayName": "Automation for Jira",
+                "accountType": "app",
+            },
+            "issue": {
+                "key": "SRE-322",
+                "fields": {
+                    "status": {
+                        "name": "Done",
+                        "statusCategory": {"key": "done"},
+                    },
+                },
+            },
+            "changelog": {
+                "items": [
+                    {
+                        "field": "status",
+                        "fromString": "In Progress",
+                        "toString": "Done",
+                    }
+                ]
+            },
+        }
+
+        with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle:
+            response = await async_client.post("/api/webhook/jira/resolved", json=webhook_payload)
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "ignored",
+            "reason": "non_human_actor",
+            "ticket_id": "SRE-322",
+        }
+        mock_handle.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ignores_non_resolved_status_updates(self, async_client):
+        webhook_payload = {
+            "webhookEvent": "jira:issue_updated",
+            "user": {
+                "displayName": "Jane Ops",
+                "accountType": "atlassian",
+            },
+            "issue": {
+                "key": "SRE-323",
+                "fields": {
+                    "status": {
+                        "name": "In Review",
+                        "statusCategory": {"key": "indeterminate"},
+                    },
+                },
+            },
+            "changelog": {
+                "items": [
+                    {
+                        "field": "status",
+                        "fromString": "In Progress",
+                        "toString": "In Review",
+                    }
+                ]
+            },
+        }
+
+        with patch("src.api.routes.incident_routes.handle_resolution") as mock_handle:
+            response = await async_client.post("/api/webhook/jira/resolved", json=webhook_payload)
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "ignored",
+            "reason": "status_not_resolved",
+            "ticket_id": "SRE-323",
+        }
+        mock_handle.assert_not_called()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Multi-file tests
 # ──────────────────────────────────────────────────────────────────────────────

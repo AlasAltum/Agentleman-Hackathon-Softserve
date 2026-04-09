@@ -1,3 +1,4 @@
+import mlflow
 from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
 
 from src.utils.logger import logger, log_phase_start, log_phase_success, log_phase_failure
@@ -20,7 +21,7 @@ from src.workflow.phases.routing import (
     _dispatch_tools,
     _select_tools,
 )
-from src.workflow.phases.ticketing import _create_or_update_ticket, _notify_team
+from src.workflow.phases.ticketing import _create_new_ticket, _notify_team
 
 
 class SREIncidentWorkflow(Workflow):
@@ -56,6 +57,10 @@ class SREIncidentWorkflow(Workflow):
 
         request_id = preprocessed.request_id or "unknown"
         log_phase_start("retrieve", component="workflow", request_id=request_id)
+
+        # Tag the active MLflow trace with request_id — must happen inside the
+        # workflow step so the LlamaIndex autolog trace is still open.
+        mlflow.update_current_trace(tags={"request_id": request_id})
 
         # Initialise shared context for the triage loop
         await ctx.store.set("iteration", 0)
@@ -179,7 +184,7 @@ class SREIncidentWorkflow(Workflow):
         request_id = await ctx.store.get("request_id", default="unknown")
         log_phase_start("ticketing", component="workflow", request_id=request_id)
         reporter_email = ev.preprocessed.original.reporter_email
-        ticket = _create_or_update_ticket(ev.triage, reporter_email, ev.preprocessed)
-        _notify_team(ticket, ev.triage)
+        ticket = await _create_new_ticket(ev.triage, reporter_email, ev.preprocessed)
+        _notify_team(ticket, ev.triage, request_id)
         log_phase_success("ticketing", latency_ms=0, ticket_id=ticket.ticket_id, action=ticket.action, request_id=request_id)
         return StopEvent(result=ticket)

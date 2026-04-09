@@ -2,7 +2,7 @@ from src.utils.logger import logger
 from src.workflow.models import ResolutionPayload
 
 
-async def handle_resolution(payload: ResolutionPayload) -> None:
+def handle_resolution(payload: ResolutionPayload) -> None:
     """Phase 6: Handle Jira webhook when a ticket transitions to 'Done'.
 
     Notifies the original reporter and feeds the resolution back into the
@@ -13,15 +13,16 @@ async def handle_resolution(payload: ResolutionPayload) -> None:
         ticket_id=payload.ticket_id,
         resolved_by=payload.resolved_by,
     )
-    _notify_reporter(payload)
-    await _save_to_knowledge_base(payload)
+    _trigger_resolution_notifications(payload)
+    _save_to_knowledge_base(payload)
 
 
-def _notify_reporter(payload: ResolutionPayload) -> None:
-    """Send resolution email to the original incident reporter.
+def _trigger_resolution_notifications(payload: ResolutionPayload) -> None:
+    """Trigger resolution notifications for the reporter and support team.
 
-    Stub: logs intent until email integration is wired.
+    Stub: logs intent until the notification integration is wired.
     """
+    # TODO(notification-service): call the notification service here when the Jira resolution webhook should fan out notifications.  # NOSONAR
     logger.info(
         "resolution_email",
         ticket_id=payload.ticket_id,
@@ -29,7 +30,7 @@ def _notify_reporter(payload: ResolutionPayload) -> None:
     )
 
 
-async def _save_to_knowledge_base(payload: ResolutionPayload) -> None:
+def _save_to_knowledge_base(payload: ResolutionPayload) -> None:
     """Persist resolution metadata to Qdrant for the auto-improvement loop.
 
     Stub: logs intent until Qdrant integration is wired.
@@ -39,3 +40,4 @@ async def _save_to_knowledge_base(payload: ResolutionPayload) -> None:
         ticket_id=payload.ticket_id,
         integration="qdrant",
     )
+
