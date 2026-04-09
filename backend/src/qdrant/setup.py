@@ -34,7 +34,7 @@ def initialize_system():
     return storage_context
 
 def seed_data(storage_context):
-    file_path="incidents.json"
+    file_path="src/qdrant/incidents.json"
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             incident_data = json.load(f)
@@ -49,12 +49,12 @@ def seed_data(storage_context):
     for item in incident_data:
         # LlamaIndex wraps data into Document objects
         doc = Document(
-            text=item["text"],
+            text=item["description"],
             doc_id=item["id"],
             metadata={
                 "incident_id": item["id"],
-                "summary": item["summary"],
-                "resolution": item["resolution"],
+                "summary": item["description"],
+                "resolution": item.get("resolution", ""),
                 "timestamp": "2026-04-08T10:00:00Z"
             }
         )
