@@ -1,0 +1,99 @@
+x-ecommerce-api-environment: &ecommerce-api-environment
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT:-5432}/${ECOMMERCE_DB_NAME:-medusa}
+  STORE_CORS: ${ECOMMERCE_STORE_CORS:-http://localhost:8001}
+  ADMIN_CORS: ${ECOMMERCE_ADMIN_CORS:-http://localhost:9000}
+  AUTH_CORS: ${ECOMMERCE_AUTH_CORS:-http://localhost:9000,http://localhost:8001}
+  JWT_SECRET: ${ECOMMERCE_JWT_SECRET:-supersecret}
+  COOKIE_SECRET: ${ECOMMERCE_COOKIE_SECRET:-supersecret}
+  ROOT_ENV_FILE: /workspace/root.env
+  ECOMMERCE_CREATE_ADMIN_USER: ${ECOMMERCE_CREATE_ADMIN_USER:-false}
+  ECOMMERCE_ADMIN_EMAIL: ${ECOMMERCE_ADMIN_EMAIL:-test-admin@gmail.com}
+  ECOMMERCE_ADMIN_PASSWORD: ${ECOMMERCE_ADMIN_PASSWORD:-admin}
+
+services:
+  ecommerce-db-prepare:
+    image: postgres:15-alpine
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      ECOMMERCE_DB_NAME: ${ECOMMERCE_DB_NAME:-medusa}
+    volumes:
+      - ./scripts/prepare-db.sh:/usr/local/bin/prepare-db.sh:ro
+    entrypoint:
+      - /bin/sh
+      - /usr/local/bin/prepare-db.sh
+
+  ecommerce-api-init:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      ecommerce-db-prepare:
+        condition: service_completed_successfully
+    environment: *ecommerce-api-environment
+    volumes:
+      - ../.env:/workspace/root.env
+    command:
+      - ./scripts/bootstrap.sh
+
+  ecommerce-api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      ecommerce-api-init:
+        condition: service_completed_successfully
+    environment: *ecommerce-api-environment
+    ports:
+      - "${ECOMMERCE_API_PORT:-9000}:9000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:9000/health').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  ecommerce-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      ecommerce-api-init:
+        condition: service_completed_successfully
+      ecommerce-api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      MEDUSA_BACKEND_URL: ${ECOMMERCE_API_INTERNAL_URL:-http://ecommerce-api:9000}
+      NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-http://localhost:8001}
+      ROOT_ENV_FILE: /workspace/root.env
+      WEB_ENV_WAIT_SECONDS: ${WEB_ENV_WAIT_SECONDS:-300}
+    ports:
+      - "${ECOMMERCE_WEB_PORT:-8001}:8001"
+    volumes:
+      - ../.env:/workspace/root.env:ro
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8001').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s

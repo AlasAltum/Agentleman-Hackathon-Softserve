@@ -6,6 +6,8 @@ include:
     project_directory: backend
   - path: observability/docker-compose.yml
     project_directory: observability
+  - path: ecommerce-platform/docker-compose.yml
+    project_directory: ecommerce-platform
 
 # Root-level overrides can still be added here if needed.
 services: {}
