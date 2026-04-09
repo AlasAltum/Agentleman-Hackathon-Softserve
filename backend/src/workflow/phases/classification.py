@@ -39,13 +39,13 @@ async def retrieve_candidates(preprocessed: PreprocessedIncident) -> list[Histor
             candidates.append(
                 HistoricalCandidate(
                     incident_id=meta.get("incident_id", node_with_score.node.node_id),
-                    similarity_score=node_with_score.score or 0.0,
                     timestamp=_parse_timestamp(meta.get("timestamp")),
-                    summary=meta.get(
-                        "summary",
+                    description=meta.get(
+                        "description",
                         node_with_score.node.get_content()[:200],
                     ),
                     resolution=meta.get("resolution") or None,
+                    similarity_score=node_with_score.score or 0.0,
                 )
             )
 
@@ -64,16 +64,82 @@ async def retrieve_candidates(preprocessed: PreprocessedIncident) -> list[Histor
 # ── Step 2: Node Reranker ─────────────────────────────────────────────────────
 
 def rerank_candidates(candidates: list[HistoricalCandidate]) -> list[HistoricalCandidate]:
-    """Filter and sort candidates down to Top-N using similarity score.
+    """Rerank candidates using Cohere's intelligent ranking model.
 
-    Production upgrade path: swap the slice for a cross-encoder reranker
-    (e.g. llama_index.postprocessor.SentenceTransformerRerank) without
-    changing the step interface.
+    Uses llama_index's CohereRerank postprocessor for semantic reranking.
+    Falls back to similarity-based sorting if Cohere is unavailable.
     """
+    if not candidates:
+        return []
+
+    # Try Cohere reranking (requires COHERE_API_KEY)
+    try:
+        from llama_index.postprocessor.cohere_rerank import CohereRerank
+        from llama_index.core.schema import NodeWithScore, TextNode
+
+        # Convert HistoricalCandidate back to Nodes for reranking
+        nodes_with_scores = [
+            NodeWithScore(
+                node=TextNode(
+                    text=c.description,
+                    id_=c.incident_id,
+                    metadata={
+                        "incident_id": c.incident_id,
+                        "resolution": c.resolution,
+                        "timestamp": c.timestamp.isoformat(),
+                    },
+                ),
+                score=c.similarity_score,
+            )
+            for c in candidates
+        ]
+
+        # Initialize Cohere reranker
+        reranker = CohereRerank(
+            top_n=_RERANKER_TOP_N,
+            model="rerank-english-v3.0",
+        )
+
+        # Rerank using Cohere
+        reranked_nodes = reranker.postprocess_nodes(
+            nodes=nodes_with_scores,
+            query_str=candidates[0].description if candidates else "",  # Use first desc as query context
+        )
+
+        # Convert back to HistoricalCandidate
+        reranked_candidates = [
+            HistoricalCandidate(
+                incident_id=node.node.metadata.get("incident_id", node.node.id_),
+                description=node.node.get_content(),
+                resolution=node.node.metadata.get("resolution"),
+                timestamp=datetime.fromisoformat(
+                    node.node.metadata.get("timestamp", datetime.now(tz=timezone.utc).isoformat())
+                ),
+                similarity_score=node.score or 0.0,
+            )
+            for node in reranked_nodes
+        ]
+
+        logger.info(
+            "[classification] Cohere reranked %d → %d candidates",
+            len(candidates),
+            len(reranked_candidates),
+        )
+        return reranked_candidates
+
+    except ImportError:
+        logger.warning("[classification] CohereRerank not installed — falling back to similarity-based ranking")
+    except Exception as exc:
+        logger.warning(
+            "[classification] Cohere reranking failed (%s) — falling back to similarity-based ranking",
+            exc,
+        )
+
+    # Fallback: Sort by similarity score
     ranked = sorted(candidates, key=lambda c: c.similarity_score, reverse=True)
     top_n = ranked[:_RERANKER_TOP_N]
     logger.info(
-        "[classification] Reranked %d → %d candidates (threshold kept all above 0)",
+        "[classification] Fallback reranked %d → %d candidates (similarity-based)",
         len(candidates),
         len(top_n),
     )

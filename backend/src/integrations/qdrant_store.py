@@ -42,17 +42,20 @@ def get_qdrant_index():
     _initialized = True
 
     try:
-        from qdrant_client import QdrantClient
+        from qdrant_client import AsyncQdrantClient
         from llama_index.vector_stores.qdrant import QdrantVectorStore
-        from llama_index.core import VectorStoreIndex
+        from llama_index.core import VectorStoreIndex, Settings
+        from llama_index.embeddings.fastembed import FastEmbedEmbedding
 
-        client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+        # Configure FastEmbedEmbedding (same as setup.py - no API key needed)
+        Settings.embed_model = FastEmbedEmbedding(model_name="BAAI/bge-small-en-v1.5")
+
+        # Use async client for retrieval
+        aclient = AsyncQdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
         # Ping to surface connection errors early (before first retrieval)
-        client.get_collections()
-
         vector_store = QdrantVectorStore(
-            client=client,
+            aclient=aclient,
             collection_name=QDRANT_COLLECTION,
         )
         _index = VectorStoreIndex.from_vector_store(vector_store)

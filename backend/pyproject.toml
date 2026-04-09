@@ -6,7 +6,7 @@ authors = [
     {name = "Ricardo",email = "ricky_olalquiaga@hotmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "llama-index-core (>=0.14.19,<0.15.0)",
     "llama-index-llms-openai (>=0.7.0,<0.8.0)",
@@ -19,6 +19,8 @@ dependencies = [
     "fastembed (>=0.8.0,<0.9.0)",
     "python-multipart (>=0.0.20,<0.1.0)",
     "llama-index-vector-stores-qdrant (>=0.4.0,<1.0.0)",
+    "llama-index-embeddings-fastembed (>=0.6.0,<0.7.0)",
+    "llama-index-postprocessor-cohere-rerank (>=0.3.0)",
 ]
 
 [project.optional-dependencies]
