@@ -56,12 +56,10 @@ class TestIngestIntegrationBasic:
             data=form_data,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
         result = response.json()
-        assert result["status"] == "triaged"
-        assert "ticket_id" in result
-        assert "ticket_url" in result
-        assert result["action"] in ["created", "updated"]
+        assert result["status"] == "accepted"
+        assert "request_id" in result
     
     def test_ingest_with_log_file_full_flow(self, client):
         log_content = b"""ERROR: Connection refused to database server
@@ -84,10 +82,9 @@ ERROR: Max retries exceeded
             files=files,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
         result = response.json()
-        assert result["status"] == "triaged"
-        assert result["action"] == "created"
+        assert result["status"] == "accepted"
     
     def test_ingest_with_png_image_full_flow(self, client):
         fake_png_header = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
@@ -106,9 +103,9 @@ ERROR: Max retries exceeded
             files=files,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
         result = response.json()
-        assert result["status"] == "triaged"
+        assert result["status"] == "accepted"
     
     def test_ingest_with_jpeg_image_full_flow(self, client):
         fake_jpeg_header = b"\xff\xd8\xff\xe0\x00\x10JFIF"
@@ -127,7 +124,7 @@ ERROR: Max retries exceeded
             files=files,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
 
 
 class TestIngestIntegrationGuardrails:
@@ -223,9 +220,9 @@ class TestIngestIntegrationPreprocessing:
             files=files,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
         result = response.json()
-        assert result["status"] == "triaged"
+        assert result["status"] == "accepted"
     
     def test_image_file_ocr_stub(self, client):
         files = {
@@ -242,7 +239,7 @@ class TestIngestIntegrationPreprocessing:
             files=files,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
 
 
 class TestIngestIntegrationWorkflow:
@@ -257,9 +254,9 @@ class TestIngestIntegrationWorkflow:
             data=form_data,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
         result = response.json()
-        assert result["status"] == "triaged"
+        assert result["status"] == "accepted"
     
     def test_workflow_with_codebase_keywords(self, client):
         form_data = {
@@ -272,7 +269,7 @@ class TestIngestIntegrationWorkflow:
             data=form_data,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
     
     def test_workflow_with_telemetry_keywords(self, client):
         form_data = {
@@ -285,7 +282,7 @@ class TestIngestIntegrationWorkflow:
             data=form_data,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
     
     def test_workflow_multiple_keywords_combined(self, client):
         form_data = {
@@ -298,9 +295,9 @@ class TestIngestIntegrationWorkflow:
             data=form_data,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
         result = response.json()
-        assert "ticket_id" in result
+        assert "request_id" in result
 
 
 class TestIngestIntegrationEdgeCases:
@@ -346,7 +343,7 @@ class TestIngestIntegrationEdgeCases:
             files=files,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
     
     def test_unicode_in_text_description(self, client):
         form_data = {
@@ -359,7 +356,7 @@ class TestIngestIntegrationEdgeCases:
             data=form_data,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202
     
     def test_special_characters_in_log_file(self, client):
         log_content = b"ERROR: Special chars \x00\x01\x02 in log"
@@ -378,4 +375,4 @@ class TestIngestIntegrationEdgeCases:
             files=files,
         )
         
-        assert response.status_code == 200
+        assert response.status_code == 202

@@ -1,6 +1,8 @@
+import asyncio
 import re
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
+from fastapi.responses import JSONResponse
 from typing import Any, List
 from src.guardrails import GuardrailsEngine
 from src.guardrails.models import ThreatLevel
@@ -8,7 +10,7 @@ from src.guardrails.relevance_guardrail import RelevanceGuardrail
 from src.guardrails.validators import ContentTypeGuardrail
 from src.utils.logger import logger, bind_request_context, generate_request_id
 from src.utils.tracing import start_run
-from src.workflow.models import IncidentInput, ResolutionPayload
+from src.workflow.models import IncidentInput, PreprocessedIncident, ResolutionPayload
 from src.workflow.phases.preprocessing import preprocess_incident
 from src.workflow.phases.resolution import handle_resolution
 from src.workflow.phases.ticketing import dispatch_notifications
@@ -18,6 +20,22 @@ import structlog
 router = APIRouter(prefix="/api")
 
 _MAX_FILES = 5
+_BACKGROUND_WORKFLOW_TASKS: set[asyncio.Task] = set()
+
+
+async def _run_workflow_in_background(preprocessed: PreprocessedIncident, request_id: str) -> None:
+    """Execute the SRE workflow in the background after the HTTP response is sent."""
+    bind_request_context(request_id, phase="workflow_background", component="api")
+    workflow = SREIncidentWorkflow(timeout=300)
+
+    try:
+        structlog.contextvars.bind_contextvars(mlflow_request_id=request_id)
+        with start_run(request_id=request_id):
+            ticket = await workflow.run(preprocessed=preprocessed)
+
+        logger.info("workflow_completed", ticket_id=ticket.ticket_id, action=ticket.action, request_id=request_id)
+    except Exception as exc:
+        logger.error("triage_error", request_id=request_id, error_type=type(exc).__name__, exc_info=True)
 _REPORTER_EMAIL_RE = re.compile(
     r"reporter email:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
     re.IGNORECASE,
@@ -97,29 +115,20 @@ async def ingest_incident(
         logger.warning("relevance_check_blocked", reason=relevance_result.message)
         raise HTTPException(status_code=422, detail=relevance_result.message)
 
-    workflow = SREIncidentWorkflow(timeout=300)
+    task = asyncio.create_task(_run_workflow_in_background(preprocessed, request_id))
+    _BACKGROUND_WORKFLOW_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_WORKFLOW_TASKS.discard)
 
-    try:
-        # MLflow 3.x: LlamaIndex autolog creates the Trace automatically when
-        # workflow.run() executes.  start_run only activates the structlog
-        # capture buffer; after the block it tags the completed Trace with
-        # request_id and the captured log lines.
-        structlog.contextvars.bind_contextvars(mlflow_request_id=request_id)
-        with start_run(request_id=request_id):
-            ticket = await workflow.run(preprocessed=preprocessed)
+    logger.info("workflow_dispatched", request_id=request_id)
 
-        logger.info("workflow_completed", ticket_id=ticket.ticket_id, action=ticket.action)
-        
-        return {
-            "status": "triaged",
-            "ticket_id": ticket.ticket_id,
-            "ticket_url": ticket.ticket_url,
-            "action": ticket.action,
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "message": "Incident report received. Triage workflow is running in the background.",
             "request_id": request_id,
-        }
-    except Exception as exc:
-        logger.error("triage_error", error_type=type(exc).__name__, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal triage error.")
+        },
+    )
 
 
 @router.post("/webhook/jira/resolved")
