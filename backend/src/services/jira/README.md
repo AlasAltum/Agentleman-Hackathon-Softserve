@@ -70,6 +70,62 @@ Do not commit real Atlassian credentials. Keep the real token only in the local 
 - The ticket summary and description come from the reported incident content, not from the agent's triage narrative.
 - Resolution is a separate explicit flow that transitions the Jira issue without adding comments.
 
+### Jira Resolution Webhook
+
+When a human resolves a Jira task in the Jira UI, Jira should send an `issue updated` webhook to the backend. The backend route filters those events and only processes them when all of the following are true:
+
+- the webhook event is `jira:issue_updated`
+- the changelog includes a `status` change
+- the actor is a human Atlassian user with `accountType = atlassian`
+- the issue moved into a resolved state such as `Done`, `Resolved`, `Closed`, or any status category whose key is `done`
+
+Backend endpoint:
+
+```text
+POST /api/webhook/jira/resolved
+```
+
+The legacy alias below is still accepted for compatibility:
+
+```text
+POST /api/webhook/resolved
+```
+
+At runtime the webhook is projected into the internal `ResolutionPayload` and passed to the resolution phase. That resolution phase already contains the explicit `# TODO` marker where the notification service call should be wired.
+
+Example Jira webhook body shape used by the backend:
+
+```json
+{
+	"webhookEvent": "jira:issue_updated",
+	"user": {
+		"displayName": "Jane Ops",
+		"accountType": "atlassian"
+	},
+	"issue": {
+		"key": "SRE-123",
+		"fields": {
+			"summary": "Checkout API returns 500 after payment confirmation",
+			"status": {
+				"name": "Done",
+				"statusCategory": {
+					"key": "done"
+				}
+			}
+		}
+	},
+	"changelog": {
+		"items": [
+			{
+				"field": "status",
+				"fromString": "In Progress",
+				"toString": "Done"
+			}
+		]
+	}
+}
+```
+
 ### Agent Tool Contract
 
 The agent should call only the two public methods in `src.services.jira.bridge`.
