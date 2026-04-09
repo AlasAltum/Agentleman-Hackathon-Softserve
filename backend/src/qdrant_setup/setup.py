@@ -1,15 +1,23 @@
 import os
-import uuid
+import json
+from urllib.parse import urlparse
+
 from qdrant_client import QdrantClient
 from llama_index.core import VectorStoreIndex, StorageContext, Document
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from llama_index.core import Settings
-import json
 
 # --- CONFIGURATION ---
-COLLECTION_NAME = "incidents"
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "incidents")
+
+_qdrant_url = os.getenv("QDRANT_URL", "")
+if _qdrant_url:
+    _parsed = urlparse(_qdrant_url)
+    QDRANT_HOST = _parsed.hostname or "localhost"
+    QDRANT_PORT = _parsed.port or 6333
+else:
+    QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+    QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
 
 def initialize_system():
     """Initialize LlamaIndex settings and Qdrant connection.
@@ -39,7 +47,7 @@ def initialize_system():
     return storage_context
 
 def seed_data(storage_context):
-    file_path="src/qdrant_setup/incidents.json"
+    file_path = os.path.join(os.path.dirname(__file__), "incidents.json")
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             incident_data = json.load(f)
@@ -92,12 +100,12 @@ def verify_seeded_data(index, query_text="DNS failure"):
         print(f"Resolution: {meta.get('resolution')}")
 
 if __name__ == "__main__":
-    from utils.setup import setup_defaults
+    from src.utils.setup import setup_defaults
     from dotenv import load_dotenv
-    
+
     load_dotenv()
     setup_defaults()
-    
+
     storage_ctx = initialize_system()
     idx = seed_data(storage_ctx)
     verify_seeded_data(idx, "Cant login and my new password wont arrive into my email wtff")
