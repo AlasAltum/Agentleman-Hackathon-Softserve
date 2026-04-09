@@ -7,6 +7,8 @@ from contextlib import contextmanager
 import mlflow
 from mlflow.entities import SpanType
 
+from src.utils.logger import _RunLogCapture, _active_capture
+
 _MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "sre-workflow")
 _MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
 _MLFLOW_AUTOLOG_ENABLED = os.getenv("MLFLOW_AUTOLOG_ENABLED", "true").lower() == "true"
@@ -31,14 +33,36 @@ def configure_mlflow() -> None:
 
 @contextmanager
 def start_run(request_id: str, run_name: Optional[str] = None):
-    """Context manager for MLflow run with request_id tracking."""
-    run = mlflow.start_run(run_name=run_name or request_id)
-    mlflow.log_param("request_id", request_id)
-    mlflow.log_param("service", "backend")
+    """Wraps the LlamaIndex workflow execution with structlog capture.
+
+    Tagging is done inside the first workflow step via mlflow.update_current_trace()
+    while the LlamaIndex autolog trace is still active. This context manager only
+    manages the structlog capture buffer and log persistence.
+
+    Also writes the full structlog capture to disk as logs/trace_<id8>.jsonl.
+    """
+    capture = _RunLogCapture()
+    token = _active_capture.set(capture)
     try:
-        yield run
+        yield
     finally:
-        mlflow.end_run()
+        _write_logs_to_disk(capture, request_id)
+        _active_capture.reset(token)
+        capture.clear()
+
+
+def _write_logs_to_disk(capture: _RunLogCapture, request_id: str) -> None:
+    """Persist the full structlog capture to a per-request JSONL file."""
+    if not capture.events:
+        return
+    logs_dir = os.getenv("LOG_DIR", "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    out_path = os.path.join(logs_dir, f"trace_{request_id[:8]}.jsonl")
+    try:
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(capture.as_jsonlines())
+    except Exception:
+        pass
 
 def log_span(phase: str, status: str = "started", **kwargs: Any) -> None:
     with mlflow.start_span(name=phase, span_type=SpanType.CHAIN) as span:

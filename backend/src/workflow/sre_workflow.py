@@ -1,3 +1,4 @@
+import mlflow
 from llama_index.core.workflow import Context, StartEvent, StopEvent, Workflow, step
 
 from src.utils.logger import logger, log_phase_start, log_phase_success, log_phase_failure
@@ -56,6 +57,10 @@ class SREIncidentWorkflow(Workflow):
 
         request_id = preprocessed.request_id or "unknown"
         log_phase_start("retrieve", component="workflow", request_id=request_id)
+
+        # Tag the active MLflow trace with request_id — must happen inside the
+        # workflow step so the LlamaIndex autolog trace is still open.
+        mlflow.update_current_trace(tags={"request_id": request_id})
 
         # Initialise shared context for the triage loop
         await ctx.store.set("iteration", 0)

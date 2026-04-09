@@ -1,4 +1,8 @@
+import contextvars
+import json
 import logging
+import logging.handlers
+import os
 import sys
 from uuid_extensions import uuid7
 import time
@@ -11,24 +15,79 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ---------------------------------------------------------------------------
+# MLflow log capture — one capture buffer per async context (request-scoped)
+# ---------------------------------------------------------------------------
+
+class _RunLogCapture:
+    """Accumulates structlog events during an MLflow run."""
+
+    def __init__(self) -> None:
+        self._events: list[dict] = []
+
+    def append(self, event: dict) -> None:
+        self._events.append(event)
+
+    def as_jsonlines(self) -> str:
+        return "\n".join(json.dumps(e) for e in self._events)
+
+    def clear(self) -> None:
+        self._events.clear()
+
+    @property
+    def events(self) -> list[dict]:
+        return self._events
+
+
+# ContextVar so concurrent async requests each get their own capture buffer
+_active_capture: contextvars.ContextVar[_RunLogCapture | None] = contextvars.ContextVar(
+    "mlflow_log_capture", default=None
+)
+
+
+def _capture_processor(_logger: Any, _method: str, event_dict: dict) -> dict:
+    """Structlog processor that mirrors events to the active MLflow capture buffer."""
+    capture = _active_capture.get()
+    if capture is not None:
+        capture.append(dict(event_dict))  # shallow copy — don't mutate the pipeline dict
+    return event_dict
+
+
 def generate_request_id() -> str:
     return str(uuid7())
 
 def configure_logging() -> None:
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=logging.INFO,
+    _logs_dir = os.getenv("LOG_DIR", "logs")
+    os.makedirs(_logs_dir, exist_ok=True)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # stdout handler (existing behaviour)
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(logging.Formatter("%(message)s"))
+
+    # rotating file handler — max 10 MB, keep 5 backups
+    file_handler = logging.handlers.RotatingFileHandler(
+        filename=os.path.join(_logs_dir, "app.jsonl"),
+        maxBytes=10_000_000,
+        backupCount=5,
+        encoding="utf-8",
     )
+    file_handler.setFormatter(logging.Formatter("%(message)s"))
+
+    root_logger.addHandler(stdout_handler)
+    root_logger.addHandler(file_handler)
 
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
+            _capture_processor,
             structlog.processors.JSONRenderer(),
         ],
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
 
