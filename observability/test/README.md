@@ -17,7 +17,7 @@ docker compose --profile test build observability-test-runner
 
 The runner uses the same `python:3.12-slim` base image family as the observability Docker stack, and it installs the smoke-test dependencies from `observability/test/pyproject.toml` and `observability/test/poetry.lock` with Poetry.
 
-The command examples below assume the `observability-test-runner` service is already running and execute from `/workspace/observability/test` inside that container.
+The command examples below assume the `observability-test-runner` service is already running and execute from `/workspace/observability/test` inside that container. You can start it directly with `docker compose --profile test up -d observability-test-runner`, or by starting the full stack in the runbook below.
 
 ## Expected scripts
 
