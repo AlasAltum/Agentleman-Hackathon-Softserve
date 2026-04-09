@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from src.api.routes.incident_routes import router as incident_router
 from src.utils.logger import generate_request_id, bind_request_context, logger
+from src.utils.setup import setup_defaults
 from src.utils.tracing import configure_mlflow
 import os
 import time
@@ -50,6 +51,7 @@ origins = [
 ]
 
 configure_mlflow()
+setup_defaults()
 
 app = FastAPI(
     title="Llama Index API",
