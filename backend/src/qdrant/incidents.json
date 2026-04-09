@@ -1,0 +1,292 @@
+[
+    {
+        "id": "SRE-001",
+        "description": "DNS Resolution failure for SMTP provider.",
+        "resolution": "Updated local /etc/hosts as temporary fix and flushed CoreDNS cache."
+    },
+    {
+        "id": "SRE-002",
+        "description": "Load Balancer state table saturation (UDP Flood).",
+        "resolution": "Implemented rate-limiting at the edge firewall and adjusted connection timeout."
+    },
+    {
+        "id": "SRE-003",
+        "description": "NPE in CheckoutService during VAT calculation.",
+        "resolution": "Added null check for user country code before calling TaxService API."
+    },
+    {
+        "id": "SRE-004",
+        "description": "Database deadlock in transactions table.",
+        "resolution": "Applied row-level locking and reordered the update sequence in the worker script."
+    },
+    {
+        "id": "SRE-005",
+        "description": "High latency in Inventory service due to Redis connection leak.",
+        "resolution": "Refactored the connection pooler to ensure clients are returned to the pool in a finally block."
+    },
+    {
+        "id": "SRE-007",
+        "description": "Fluentd memory leak causing OOMKilled events.",
+        "resolution": "Updated Fluentd to v1.14 and adjusted buffer chunk limits."
+    },
+    {
+        "id": "SRE-008",
+        "description": "Expired SSL certificate on payments API.",
+        "resolution": "Renewed certificate via Cert-Manager and added automated monitoring alerts for expiration."
+    },
+    {
+        "id": "SRE-009",
+        "description": "Data SREonsistency due to DB replication lag.",
+        "resolution": "Forced sensitive reads to the primary node and optimized long-running queries on the replica."
+    },
+    {
+        "id": "SRE-010",
+        "description": "Brute force attack on login endpoint.",
+        "resolution": "Enabled Cloudflare WAF rules to block the offending CIDR block and enforced MFA."
+    },
+    {
+        "id": "SRE-011",
+        "description": "PDF generation timeout for large invoices.",
+        "resolution": "Moved PDF generation to an asynchronous Celery task with a webhook notification."
+    },
+    {
+        "id": "SRE-012",
+        "description": "S3 object corruption via lifecycle policy.",
+        "resolution": "Reverted the lifecycle rule and restored affected objects from versioning."
+    },
+    {
+        "id": "SRE-013",
+        "description": "CORS error on staging CDN access.",
+        "resolution": "Added the staging origin to the AllowedOrigins list in the S3/CloudFront bucket config."
+    },
+    {
+        "id": "SRE-014",
+        "description": "Elasticsearch CPU spike due to unoptimized aggregations.",
+        "resolution": "Implemented query filtering and limited the 'size' parameter for bucket aggregations."
+    },
+    {
+        "id": "SRE-015",
+        "description": "WebSocket handshake failures in Live Chat.",
+        "resolution": "SREreased the proxy_read_timeout and proxy_send_timeout in the Nginx ingress controller."
+    },
+    {
+        "id": "SRE-016",
+        "description": "CI/CD deployment failure - Docker image not found.",
+        "resolution": "Fixed the tagging logic in the Jenkinsfile and verified registry credentials."
+    },
+    {
+        "id": "SRE-017",
+        "description": "Client-side memory leak in React frontend.",
+        "resolution": "Wrapped the event listener cleanup in the useEffect return statement."
+    },
+    {
+        "id": "SRE-018",
+        "description": "Internal DoS via infinite loop in migration script.",
+        "resolution": "Killed the rogue process and added a safety break condition in the loop."
+    },
+    {
+        "id": "SRE-019",
+        "description": "OIDC auth failure due to clock skew.",
+        "resolution": "Resynced NTP on all application servers and SREreased the token leeway."
+    },
+    {
+        "id": "SRE-020",
+        "description": "Static image 404s after Nginx config change.",
+        "resolution": "Updated the 'root' directive in the server block to point to the correct directory."
+    },
+    {
+        "id": "SRE-021",
+        "description": "DB Server disk saturation - unrotated audit logs.",
+        "resolution": "Purged old log files and configured logrotate for the /var/log/audit directory."
+    },
+    {
+        "id": "SRE-022",
+        "description": "VPN packet loss - Inter-office slowness.",
+        "resolution": "Adjusted MTU size to 1400 to prevent fragmentation over the ISP backhaul."
+    },
+    {
+        "id": "SRE-023",
+        "description": "SQL Injection attempt blocked by WAF.",
+        "resolution": "Sanitized the input parameter and implemented prepared statements in the legacy DAO."
+    },
+    {
+        "id": "SRE-024",
+        "description": "Nightly backup failure - permission denied.",
+        "resolution": "Corrected the UID/GID on the NFS mount point to match the backup user."
+    },
+    {
+        "id": "SRE-025",
+        "description": "Buffer overflow in legacy Video Service.",
+        "resolution": "Implemented bounds checking before memory allocation in the processing loop."
+    },
+    {
+        "id": "SRE-026",
+        "description": "API Quota exceeded - Google Maps 429.",
+        "resolution": "Implemented client-side caching for geocoding results and optimized API calls."
+    },
+    {
+        "id": "SRE-027",
+        "description": "Process zombies causing system degradation.",
+        "resolution": "Patched the parent process to properly handle SIGCHLD signals."
+    },
+    {
+        "id": "SRE-028",
+        "description": "Stripe Webhook JSON parse error.",
+        "resolution": "Updated the local webhook handler to accommodate the new payload schema."
+    },
+    {
+        "id": "SRE-029",
+        "description": "DB Search performance hit - index fragmentation.",
+        "resolution": "Ran an 'OPTIMIZE TABLE' command and scheduled weekly index rebuilds."
+    },
+    {
+        "id": "SRE-030",
+        "description": "Stack overflow in recursive search function.",
+        "resolution": "Converted the recursive function to an iterative approach using a stack data structure."
+    },
+    {
+        "id": "SRE-031",
+        "description": "RabbitMQ connection failure - expired credentials.",
+        "resolution": "Rotated the RabbitMQ user password and updated the Vault secrets."
+    },
+    {
+        "id": "SRE-032",
+        "description": "No space left on /tmp - File uploads failing.",
+        "resolution": "Cleared old temp files and SREreased the /tmp partition size."
+    },
+    {
+        "id": "SRE-033",
+        "description": "TypeScript type error in Checkout UI.",
+        "resolution": "Added a fallback value for the 'total' property and fixed the interface definition."
+    },
+    {
+        "id": "SRE-034",
+        "description": "Terraform configuration drift - Production risk.",
+        "resolution": "Imported the state correctly and enabled 'prevent_destroy' on the bucket resource."
+    },
+    {
+        "id": "SRE-035",
+        "description": "TLS 1.3 Handshake timeout on legacy browsers.",
+        "resolution": "Enabled TLS 1.2 as a fallback in the Nginx SSL configuration."
+    },
+    {
+        "id": "SRE-036",
+        "description": "Service outage after failed Kernel update.",
+        "resolution": "Booted from a previous kernel version via GRUB and disabled unattended-upgrades for the kernel."
+    },
+    {
+        "id": "SRE-037",
+        "description": "Race condition - Duplicate ticket numbers.",
+        "resolution": "Implemented an atomic SRErement counter in Redis for ticket ID generation."
+    },
+    {
+        "id": "SRE-038",
+        "description": "S3 Bucket policy error - CDN access denied.",
+        "resolution": "Corrected the Bucket Policy to allow 'GetObject' from the CloudFront Origin Access Identity."
+    },
+    {
+        "id": "SRE-039",
+        "description": "AD Sync failure - Port 389 blocked.",
+        "resolution": "Opened port 389/636 in the internal security group for the sync server."
+    },
+    {
+        "id": "SRE-040",
+        "description": "Latency degradation due to noisy neighbor.",
+        "resolution": "Migrated the affected high-traffic database to a dedicated instance."
+    },
+    {
+        "id": "SRE-041",
+        "description": "Custom font loading blocked by CSP.",
+        "resolution": "Added the font provider URL to the 'font-src' directive in the CSP header."
+    },
+    {
+        "id": "SRE-042",
+        "description": "5xx error spike after WAF 'Strict' mode enabled.",
+        "resolution": "White-listed valid internal health check requests that were being flagged as malicious."
+    },
+    {
+        "id": "SRE-043",
+        "description": "Redis cache corruption - Cross-user data leak.",
+        "resolution": "Flushed the cache and added user-specific prefixes to all session keys."
+    },
+    {
+        "id": "SRE-044",
+        "description": "Report upload error - Encoding mismatch (UTF-16).",
+        "resolution": "Added an encoding detection layer to convert files to UTF-8 before processing."
+    },
+    {
+        "id": "SRE-045",
+        "description": "FCM Push notification failure - expired key.",
+        "resolution": "Generated a new FCM server key and updated the environment secrets."
+    },
+    {
+        "id": "SRE-046",
+        "description": "DB disconnection - Connection pool exhaustion.",
+        "resolution": "SREreased the 'max_connections' in PostgreSQL and optimized the pool size in the app."
+    },
+    {
+        "id": "SRE-047",
+        "description": "SREorrect geolocation via outdated GeoIP DB.",
+        "resolution": "Automated the weekly update of the MaxMind GeoIP database."
+    },
+    {
+        "id": "SRE-048",
+        "description": "GTM script blocking FCP - Slow page load.",
+        "resolution": "Added the 'async' and 'defer' attributes to the Google Tag Manager script tag."
+    },
+    {
+        "id": "SRE-049",
+        "description": "MongoDB schema validation failure.",
+        "resolution": "Updated the collection validation rules to match the new application model."
+    },
+    {
+        "id": "SRE-050",
+        "description": "Container Orchestrator crash - API Server OOM.",
+        "resolution": "Vertical scaling of the control plane nodes and optimized log verbosity."
+    },
+    {
+        "id": "SRE-051",
+        "description": "Login failure and password reset email not delivered.",
+        "resolution": "Found that the SendGrid API key had hit its monthly limit; rotated to a secondary key and cleared the mail queue."
+    },
+    {
+        "id": "SRE-052",
+        "description": "Portal access blocked and reset links failing to arrive.",
+        "resolution": "Identified a misconfigured SPF record that was causing major ISPs to reject our reset emails as spam. Corrected the DNS record."
+    },
+    {
+        "id": "SRE-053",
+        "description": "Authentication blocked and verification emails not sending.",
+        "resolution": "The worker service responsible for processing the email queue was stuck in a 'zombie' state due to an OOM error. Restarted the pod."
+    },
+    {
+        "id": "SRE-054",
+        "description": "Website downtime due to organic traffic surge.",
+        "resolution": "Manually scaled the Kubernetes replica set from 5 to 20 pods and enabled auto-scaling triggers based on CPU utilization."
+    },
+    {
+        "id": "SRE-055",
+        "description": "Website inaccessible due to malicious traffic (DDoS).",
+        "resolution": "Activated 'Under Attack' mode in Cloudflare and implemented a rate-limiting rule to block requests from non-residential IP ranges."
+    },
+    {
+        "id": "SRE-056",
+        "description": "Site down due to excessive internal service-to-service traffic.",
+        "resolution": "Identified a circular dependency in the logging middleware causing a traffic loop. Patched the middleware and restarted the network interface."
+    },
+    {
+        "id": "SRE-057",
+        "description": "Final step payment failure due to Stripe 402 (Declined).",
+        "resolution": "Identified that the 3D Secure 2.0 (3DS2) handshake was failing for international cards; enabled SCA-ready authentication in the checkout flow."
+    },
+    {
+        "id": "SRE-058",
+        "description": "Payment failure at last step due to database schema mismatch.",
+        "resolution": "Discovered the 'order_total' field in the DB was restricted to 2 decimal places, causing a crash on items with fraction-of-a-cent discounts. SREreased precision to 4 decimals."
+    },
+    {
+        "id": "SRE-059",
+        "description": "Payment timeout at final processing stage.",
+        "resolution": "Found that the Idempotency-Key header was being reused for different transactions due to a caching bug, causing the processor to reject the second attempt."
+    }
+]
