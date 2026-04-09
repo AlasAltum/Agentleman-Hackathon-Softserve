@@ -4,16 +4,14 @@ import csv
 import io
 import json
 import os
-import re
 
 from src.utils.logger import logger
 from src.workflow.models import FileMetadata, IncidentInput, PreprocessedIncident
 
-# Extension sets for routing when MIME type is ambiguous (e.g. text/plain for .tf and .yaml)
+# Extension sets for routing when MIME type is ambiguous
 _JSON_EXTENSIONS = {".json"}
 _CSV_EXTENSIONS = {".csv"}
-_YAML_EXTENSIONS = {".yaml", ".yml"}
-_TERRAFORM_EXTENSIONS = {".tf", ".tfvars"}
+_BLOCKED_EXTENSIONS = {".tf", ".tfvars", ".yaml", ".yml"}
 
 _CSV_MAX_ROWS = 100
 
@@ -23,19 +21,25 @@ _OCR_PROMPT = (
     "to an SRE incident. If no text is present, describe the technical content shown."
 )
 
-_HCL_BLOCK_TYPES_RE = re.compile(
-    r"^(resource|module|data|provider|variable|output|locals|terraform)\b",
-    re.MULTILINE,
-)
-
 
 async def preprocess_incident(incident: IncidentInput) -> PreprocessedIncident:
-    """Route file by MIME type / extension, extract content, consolidate into clean string."""
-    file_metadata = await _extract_file_content(
-        incident.file_content,
-        incident.file_mime_type,
-        incident.file_name,
-    )
+    """Route files by MIME type / extension, extract content, consolidate into clean string."""
+    extracted_texts: list[str] = []
+    mime_types: list[str] = []
+
+    for content, mime_type, file_name in zip(
+        incident.file_contents, incident.file_mime_types, incident.file_names
+    ):
+        ext = _file_extension(file_name)
+        if ext in _BLOCKED_EXTENSIONS:
+            logger.warning("blocked_file_extension", file_name=file_name, ext=ext)
+            raise ValueError(f"File type not allowed: {ext}")
+
+        file_metadata = await _extract_file_content(content, mime_type, file_name)
+        extracted_texts.append(file_metadata.extracted_text)
+        mime_types.append(mime_type)
+
+    file_metadata = FileMetadata(mime_types=mime_types, extracted_text="\n\n".join(extracted_texts))
     consolidated_text = _consolidate_text(incident.text_desc, file_metadata.extracted_text)
     return PreprocessedIncident(
         original=incident,
@@ -45,21 +49,13 @@ async def preprocess_incident(incident: IncidentInput) -> PreprocessedIncident:
 
 
 async def _extract_file_content(
-    file_content: bytes | None,
-    mime_type: str | None,
-    file_name: str | None,
+    file_content: bytes,
+    mime_type: str,
+    file_name: str,
 ) -> FileMetadata:
-    if file_content is None:
-        return FileMetadata()
-
     ext = _file_extension(file_name)
 
-    # Extension takes precedence for ambiguous text/plain files (.tf, .yaml sent as text/plain)
-    if ext in _TERRAFORM_EXTENSIONS:
-        extracted = _extract_terraform(file_content)
-    elif ext in _YAML_EXTENSIONS or mime_type in ("text/yaml", "application/yaml", "application/x-yaml"):
-        extracted = _extract_yaml(file_content)
-    elif ext in _JSON_EXTENSIONS or mime_type == "application/json":
+    if ext in _JSON_EXTENSIONS or mime_type == "application/json":
         extracted = _extract_json(file_content)
     elif ext in _CSV_EXTENSIONS or mime_type in ("text/csv", "application/csv"):
         extracted = _extract_csv(file_content)
@@ -69,9 +65,9 @@ async def _extract_file_content(
         extracted = _extract_text_log(file_content)
     else:
         extracted = ""
-        logger.warning("[preprocessing] Unsupported MIME type: %s — content skipped", mime_type)
+        logger.warning("unsupported_mime_type", mime_type=mime_type)
 
-    return FileMetadata(mime_type=mime_type, extracted_text=extracted)
+    return FileMetadata(mime_types=[mime_type], extracted_text=extracted)
 
 
 def _file_extension(file_name: str | None) -> str:
@@ -93,7 +89,7 @@ def _extract_json(content: bytes) -> str:
         data = json.loads(content.decode("utf-8", errors="replace"))
         return json.dumps(data, indent=2, ensure_ascii=False)
     except json.JSONDecodeError as exc:
-        logger.warning("[preprocessing] JSON parse error: %s — treating as plain text", exc)
+        logger.warning("json_parse_error", error=str(exc))
         return content.decode("utf-8", errors="replace")
 
 
@@ -111,35 +107,8 @@ def _extract_csv(content: bytes) -> str:
             lines.append(", ".join(f"{k}={v}" for k, v in row.items()))
         return f"CSV ({len(lines)} rows):\n" + "\n".join(lines)
     except Exception as exc:
-        logger.warning("[preprocessing] CSV parse error: %s — treating as plain text", exc)
+        logger.warning("csv_parse_error", error=str(exc))
         return content.decode("utf-8", errors="replace")
-
-
-# ── YAML ─────────────────────────────────────────────────────────────────────
-
-def _extract_yaml(content: bytes) -> str:
-    try:
-        import yaml  # PyYAML — available as transitive dependency of llama-index
-
-        data = yaml.safe_load(content.decode("utf-8", errors="replace"))
-        return yaml.dump(data, default_flow_style=False, allow_unicode=True)
-    except ImportError:
-        logger.warning("[preprocessing] PyYAML not installed — treating YAML as plain text")
-        return content.decode("utf-8", errors="replace")
-    except Exception as exc:
-        logger.warning("[preprocessing] YAML parse error: %s — treating as plain text", exc)
-        return content.decode("utf-8", errors="replace")
-
-
-# ── Terraform / HCL ──────────────────────────────────────────────────────────
-
-def _extract_terraform(content: bytes) -> str:
-    text = content.decode("utf-8", errors="replace")
-    block_types = set(_HCL_BLOCK_TYPES_RE.findall(text))
-    if block_types:
-        summary = f"[Terraform config — block types: {', '.join(sorted(block_types))}]\n\n"
-        return summary + text
-    return text
 
 
 # ── Image OCR (Gemini multimodal) ─────────────────────────────────────────────
@@ -152,7 +121,7 @@ async def _extract_image_ocr(content: bytes, mime_type: str) -> str:
     )
 
     if not api_key:
-        logger.warning("[preprocessing] No Gemini API key configured — OCR skipped")
+        logger.warning("no_api_key_configured", integration="gemini_ocr")
         return "[image attached — OCR requires GOOGLE_API_KEY or GEMINI_API_KEY]"
 
     try:
@@ -168,14 +137,14 @@ async def _extract_image_ocr(content: bytes, mime_type: str) -> str:
             [_OCR_PROMPT, image_part],
         )
         extracted = response.text.strip()
-        logger.info("[preprocessing] OCR extracted %d chars from image", len(extracted))
+        logger.info("ocr_extraction_complete", characters=len(extracted))
         return extracted
 
     except ImportError:
-        logger.warning("[preprocessing] google-generativeai not installed — OCR skipped")
+        logger.warning("google_generativeai_not_installed")
         return "[image attached — install google-generativeai for OCR support]"
     except Exception as exc:
-        logger.warning("[preprocessing] OCR failed: %s", exc)
+        logger.warning("ocr_failed", error=str(exc))
         return "[image attached — OCR extraction failed]"
 
 

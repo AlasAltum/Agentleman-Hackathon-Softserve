@@ -26,7 +26,7 @@ async def retrieve_candidates(preprocessed: PreprocessedIncident) -> list[Histor
 
     index = get_qdrant_index()
     if index is None:
-        logger.warning("[classification] Qdrant unavailable — skipping vector retrieval")
+        logger.info("vector_db_retrieval", status="stub", integration="qdrant")
         return []
 
     try:
@@ -176,9 +176,9 @@ def classify_incident(candidates: list[HistoricalCandidate]) -> ClassificationRe
 
     if age_hours <= _ALERT_STORM_HOURS:
         logger.info(
-            "[classification] ALERT_STORM — score=%.3f age=%.1fh",
-            top.similarity_score,
-            age_hours,
+            "alert_storm_detected",
+            top_candidate_age_hours=age_hours,
+            score=top.similarity_score,
         )
         return ClassificationResult(
             incident_type=IncidentType.ALERT_STORM,
@@ -186,9 +186,9 @@ def classify_incident(candidates: list[HistoricalCandidate]) -> ClassificationRe
         )
 
     logger.info(
-        "[classification] HISTORICAL_REGRESSION — score=%.3f age=%.1fh",
-        top.similarity_score,
-        age_hours,
+        "historical_regression_detected",
+        top_candidate_age_hours=age_hours,
+        score=top.similarity_score,
     )
     return ClassificationResult(
         incident_type=IncidentType.HISTORICAL_REGRESSION,

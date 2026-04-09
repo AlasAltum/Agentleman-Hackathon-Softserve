@@ -80,7 +80,7 @@ services:
       - infinity
     working_dir: /workspace/observability/test
     environment:
-      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_TRACKING_URI: http://mlflow:5001
       MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-observability-local}
       POETRY_VIRTUALENVS_CREATE: "false"
     volumes:
@@ -98,20 +98,20 @@ services:
       --port 5000
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --artifacts-destination /mlflow/artifacts
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000').read(1)
-      interval: 45s
-      timeout: 10s
-      retries: 5
-      start_period: 45s
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=sqlite:////mlflow/mlflow.db
+      - MLFLOW_ARTIFACT_ROOT=/mlflow/artifacts
+      - MLFLOW_SERVE_ARTIFACTS=true
     ports:
       - "5001:5000"
     volumes:
       - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 45s
+      timeout: 30s
+      retries: 3
+      start_period: 59s
     networks:
       - observability
 

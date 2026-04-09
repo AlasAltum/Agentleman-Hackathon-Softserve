@@ -7,7 +7,7 @@ async def analyze_codebase(incident_text: str) -> ToolResult:
 
     Stub: returns placeholder until codebase indexing integration is wired.
     """
-    logger.info("[tool/codebase_analyzer] Analyzing codebase (stub)")
+    logger.info("tool_execution", tool="codebase_analyzer", status="stub")
     return ToolResult(
         tool_name="codebase_analyzer",
         findings="Codebase analysis pending integration with source index.",

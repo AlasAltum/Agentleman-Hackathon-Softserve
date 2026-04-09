@@ -1,25 +1,29 @@
-from typing import Any
-
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-
+import mlflow
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
+from typing import List
 from src.guardrails import GuardrailsEngine
 from src.guardrails.models import ThreatLevel
 from src.guardrails.relevance_guardrail import RelevanceGuardrail
 from src.guardrails.validators import ContentTypeGuardrail
-from src.utils.logger import logger
-from src.workflow.models import IncidentInput, ResolutionPayload
+from src.utils.logger import logger, bind_request_context, generate_request_id
+from src.utils.tracing import start_run
+from src.workflow.models import IncidentInput, PreprocessedIncident, ResolutionPayload
 from src.workflow.phases.preprocessing import preprocess_incident
 from src.workflow.phases.resolution import handle_resolution
 from src.workflow.sre_workflow import SREIncidentWorkflow
+import structlog
 
 router = APIRouter(prefix="/api")
+
+_MAX_FILES = 5
 
 
 @router.post("/ingest")
 async def ingest_incident(
+    request: Request,
     text_desc: str = Form(...),
     reporter_email: str = Form(...),
-    file_attachment: UploadFile | None = File(default=None),
+    file_attachments: List[UploadFile] = File(default=[]),
 ):
     """Phase 1 entry point: submit an incident report for automated triage.
 
@@ -29,59 +33,85 @@ async def ingest_incident(
         - Guardrails validation on consolidated text (text + extracted file content)
         - LLM relevance check
     """
-    file_content: bytes | None = None
-    file_mime_type: str | None = None
+    request_id = request.headers.get("X-Request-ID") or generate_request_id()
+    bind_request_context(request_id, phase="ingest", component="api")
 
-    file_name: str | None = None
+    logger.info("ingest_started", text_desc_length=len(text_desc), num_attachments=len(file_attachments))
 
-    if file_attachment:
-        file_content = await file_attachment.read()
-        file_mime_type = file_attachment.content_type
-        file_name = file_attachment.filename
+    if len(file_attachments) > _MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Too many files: maximum is {_MAX_FILES}.")
 
-        ct_result = ContentTypeGuardrail().validate("", mime_type=file_mime_type)
+    file_contents: list[bytes] = []
+    file_mime_types: list[str] = []
+    file_names: list[str] = []
+
+    ct_guardrail = ContentTypeGuardrail()
+    for upload in file_attachments:
+        content = await upload.read()
+        mime_type = upload.content_type or ""
+        file_name = upload.filename or ""
+
+        ct_result = ct_guardrail.validate("", mime_type=mime_type)
         if not ct_result.is_safe:
-            logger.warning("[ingest] Blocked MIME type: %s — %s", file_mime_type, ct_result.message)
+            logger.warning("blocked_mime_type", file_name=file_name, mime_type=mime_type, reason=ct_result.message)
             raise HTTPException(status_code=400, detail=ct_result.message)
+
+        file_contents.append(content)
+        file_mime_types.append(mime_type)
+        file_names.append(file_name)
 
     incident = IncidentInput(
         text_desc=text_desc,
         reporter_email=reporter_email,
-        file_content=file_content,
-        file_mime_type=file_mime_type,
-        file_name=file_name,
+        file_contents=file_contents,
+        file_mime_types=file_mime_types,
+        file_names=file_names,
     )
 
-    # Preprocess first so guardrails evaluate the full consolidated text (desc + file content)
-    preprocessed = await preprocess_incident(incident)
-    logger.info("[ingest] Preprocessing complete — text length=%d", len(preprocessed.consolidated_text))
+    try:
+        preprocessed = await preprocess_incident(incident)
+    except ValueError as exc:
+        logger.warning("blocked_file_type", reason=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
+    preprocessed.request_id = request_id
+    logger.info("preprocessing_complete", text_length=len(preprocessed.consolidated_text))
 
     # Pattern-based guardrails on the full consolidated text
     engine_result = GuardrailsEngine().validate(preprocessed.consolidated_text)
     if engine_result.threat_level == ThreatLevel.MALICIOUS:
-        logger.warning("[ingest] Guardrails hard-blocked input: %s", engine_result.message)
+        logger.warning("guardrails_blocked_input", threat_level="MALICIOUS", reason=engine_result.message)
         raise HTTPException(status_code=400, detail=engine_result.message)
     elif engine_result.threat_level == ThreatLevel.SUSPICIOUS:
         preprocessed.security_flag = "suspicious_input"
-        logger.warning("[ingest] Guardrails soft-flagged input — proceeding with caution")
+        logger.warning("guardrails_flagged_input", threat_level="SUSPICIOUS")
 
     # LLM relevance check — rejects off-topic or adversarial inputs
     relevance_result = await RelevanceGuardrail().validate(preprocessed.consolidated_text)
     if not relevance_result.is_safe:
-        logger.warning("[ingest] Relevance check blocked input: %s", relevance_result.message)
+        logger.warning("relevance_check_blocked", reason=relevance_result.message)
         raise HTTPException(status_code=422, detail=relevance_result.message)
 
     workflow = SREIncidentWorkflow(timeout=120)
+
     try:
-        ticket = await workflow.run(preprocessed=preprocessed)
+        with start_run(request_id=request_id, run_name=f"incident-{request_id[:8]}"):
+            structlog.contextvars.bind_contextvars(run_id=request_id)
+            with mlflow.start_span(name="sre_incident_workflow", span_type=mlflow.entities.SpanType.CHAIN) as span:
+                span.set_inputs({"request_id": request_id, "text_length": len(preprocessed.consolidated_text)})
+                ticket = await workflow.run(preprocessed=preprocessed)
+                span.set_outputs({"ticket_id": ticket.ticket_id, "action": ticket.action})
+
+        logger.info("workflow_completed", ticket_id=ticket.ticket_id, action=ticket.action)
+        
         return {
             "status": "triaged",
             "ticket_id": ticket.ticket_id,
             "ticket_url": ticket.ticket_url,
             "action": ticket.action,
+            "request_id": request_id,
         }
     except Exception as exc:
-        logger.error("[ingest] Unexpected triage error: %s", exc)
+        logger.error("triage_error", error_type=type(exc).__name__, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal triage error.")
 
 

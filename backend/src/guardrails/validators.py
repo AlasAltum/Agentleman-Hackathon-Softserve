@@ -18,7 +18,7 @@ class XssGuardrail(BaseGuardrail):
         blocked = [p for p in self.XSS_PATTERNS if p.lower() in content.lower()]
 
         if blocked:
-            logger.warning("[guardrails] XSS patterns detected: %s", blocked)
+            logger.warning("xss_patterns_detected", patterns=blocked)
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.MALICIOUS,
@@ -49,7 +49,7 @@ class SqlInjectionGuardrail(BaseGuardrail):
         blocked = [p for p in self.SQL_PATTERNS if p.lower() in content.lower()]
 
         if blocked:
-            logger.warning("[guardrails] SQL injection patterns detected: %s", blocked)
+            logger.warning("sql_injection_patterns_detected", patterns=blocked)
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.MALICIOUS,
@@ -75,10 +75,6 @@ class ContentTypeGuardrail(BaseGuardrail):
             "application/json",
             "text/csv",
             "application/csv",
-            # Infra / config (usually sent as text/plain by browsers, listed for explicit uploads)
-            "text/yaml",
-            "application/yaml",
-            "application/x-yaml",
             # Images
             "image/png",
             "image/jpeg",
@@ -96,7 +92,7 @@ class ContentTypeGuardrail(BaseGuardrail):
             )
 
         if mime_type not in self._allowed_mime_types:
-            logger.warning("[guardrails] Disallowed MIME type: %s", mime_type)
+            logger.warning("disallowed_mime_type", mime_type=mime_type)
             return GuardrailsResult(
                 is_safe=False,
                 threat_level=ThreatLevel.SUSPICIOUS,

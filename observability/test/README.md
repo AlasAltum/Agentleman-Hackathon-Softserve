@@ -98,7 +98,7 @@ Expected result:
 - Grafana listens on `http://localhost:3000`
 - Prometheus listens on `http://localhost:9090`
 - Loki listens on `http://localhost:3100`
-- MLflow listens on `http://localhost:5000`
+- MLflow listens on `http://localhost:5001`
 - `observability-test-runner` stays running so Docker can execute the smoke-test scripts with Poetry
 - the MLflow container reaches `healthy` status
 
@@ -153,7 +153,7 @@ observability_test_phase_runs_total
 - Success looks like per-phase counters for `ingest`, `classify`, and `notify`.
 
 MLflow:
-- Open `http://localhost:5000`.
+- Open `http://localhost:5001`.
 - Open the `observability-local` experiment.
 - Success looks like a trace named `incident_triage_smoke_test` with nested phase spans and tags that include the same `request_id` used by the script.
 

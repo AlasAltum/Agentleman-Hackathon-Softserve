@@ -51,7 +51,7 @@ def _select_tools(
     if any(kw in text for kw in _TELEMETRY_KEYWORDS) and "telemetry_analyzer" not in already_called:
         selected.append("telemetry_analyzer")
 
-    logger.info("[routing] Tools selected: %s", selected)
+    logger.info("tools_selected", tools=selected)
     return selected
 
 
@@ -66,7 +66,7 @@ async def _dispatch_tools(
         if tool in _TOOL_DISPATCH
     ]
     results = await asyncio.gather(*coroutines)
-    logger.info("[routing] All tools completed: %d results", len(results))
+    logger.info("tools_completed", count=len(results))
     return list(results)
 
 
@@ -119,8 +119,8 @@ def _build_technical_summary(
     tool_results: list[ToolResult],
 ) -> str:
     lines = [
-        f"Incident type: {classification.incident_type}",
         f"Description: {preprocessed.consolidated_text[:500]}",
+        f"Incident type: {classification.incident_type.value}",
     ]
     if classification.historical_rca:
         lines.append(f"Historical RCA: {classification.historical_rca}")

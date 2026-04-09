@@ -9,9 +9,9 @@ def handle_resolution(payload: ResolutionPayload) -> None:
     knowledge base for future retrieval and triage improvement.
     """
     logger.info(
-        "[resolution] Ticket resolved: %s by %s",
-        payload.ticket_id,
-        payload.resolved_by,
+        "ticket_resolved",
+        ticket_id=payload.ticket_id,
+        resolved_by=payload.resolved_by,
     )
     _trigger_resolution_notifications(payload)
     _save_to_knowledge_base(payload)
@@ -24,9 +24,9 @@ def _trigger_resolution_notifications(payload: ResolutionPayload) -> None:
     """
     # TODO(notification-service): call the notification service here when the Jira resolution webhook should fan out notifications.  # NOSONAR
     logger.info(
-        "[resolution/notify] Would trigger notifications for resolved ticket %s — notes: %s",
-        payload.ticket_id,
-        payload.resolution_notes,
+        "resolution_email",
+        ticket_id=payload.ticket_id,
+        notes=payload.resolution_notes,
     )
 
 
@@ -36,6 +36,7 @@ def _save_to_knowledge_base(payload: ResolutionPayload) -> None:
     Stub: logs intent until Qdrant integration is wired.
     """
     logger.info(
-        "[resolution/kb] Would upsert resolution into vector DB: ticket=%s",
-        payload.ticket_id,
+        "kb_upsert",
+        ticket_id=payload.ticket_id,
+        integration="qdrant",
     )

@@ -29,9 +29,9 @@ class TemplateGuardrail(BaseGuardrail):
                 else f"Blocked by {self.config.name}: patterns detected."
             )
             logger.warning(
-                "[guardrails] Template=%s blocked patterns=%s",
-                self.config.name,
-                blocked,
+                "template_guardrail_blocked",
+                template=self.config.name,
+                patterns=blocked,
             )
             return GuardrailsResult(
                 is_safe=False,
