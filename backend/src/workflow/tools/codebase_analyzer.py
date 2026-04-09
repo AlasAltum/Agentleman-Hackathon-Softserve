@@ -23,10 +23,7 @@ from src.workflow.models import Severity, ToolResult
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-ECOMMERCE_ROOT = os.getenv(
-    "ECOMMERCE_ROOT",
-    str(Path(__file__).resolve().parents[5] / "ecommerce-platform"),
-)
+ECOMMERCE_ROOT = os.getenv("ECOMMERCE_ROOT", "/ecommerce-platform")
 MAX_ITERATIONS = 5
 MAX_CMD_OUTPUT = 3000   # chars per command output before truncation
 MAX_COMMANDS_PER_ITER = 4
