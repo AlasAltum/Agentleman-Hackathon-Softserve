@@ -357,7 +357,7 @@ def _jira_ticketing_enabled() -> bool:
 
 
 def _jira_polling_enabled() -> bool:
-    value = os.getenv("POLL_JIRA_TICKETS", "false").strip().lower()
+    value = os.getenv("POLL_JIRA_TICKETS", "true").strip().lower()
     return value in {"1", "true", "yes", "on"}
 
 
