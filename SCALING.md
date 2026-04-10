@@ -1,327 +1,247 @@
 # Scaling
 
-This document explains how the platform scales and why the architecture works well for high-throughput incident intake, automated triage, and operational visibility.
+This document explains how the platform scales, which assumptions that design depends on, and which technical decisions make that scaling model practical.
 
-It is written to support the submission requirements directly, especially the ability to scale:
+The main idea is simple:
 
-- multimodal incident intake
-- guardrailed agent execution
-- observability across the full workflow
-- ticketing and notification integrations
-- analysis of a medium/complex e-commerce codebase
-- reproducible Docker Compose deployment
+- incident intake stays fast and defensive
+- heavier triage work runs after the report has been accepted
+- stateful and specialized responsibilities are pushed out of the backend process
+- the system is observable enough to find bottlenecks before they become outages
 
-Scope covered here:
-- `backend/`
-- `observability/`
-- `sre-platform/`
-- `ecommerce-platform/` as an analyzed application dependency used by the triage workflow
+That is what makes the architecture scalable. The goal is to keep the intake path responsive, keep the workflow modular, and let infrastructure-heavy dependencies scale on their own terms.
 
-## Executive Summary
+## Core Scaling Model
 
-The platform is designed to stay responsive at the point of intake, push heavier reasoning into asynchronous workflows, and rely on shared services where specialization helps most.
+The platform scales through five decisions that work together:
 
-- The backend API is lightweight at the HTTP edge and can be replicated cleanly.
-- The optional SRE platform provides a separate UI and API edge layer, which keeps user interaction concerns decoupled from workflow execution.
-- The core incident workflow runs asynchronously, allowing the platform to accept reports quickly while continuing deeper triage in the background.
-- Shared services such as Qdrant, Jira, Nylas, and the observability stack give the system specialized capabilities without overloading the application tier.
-- Built-in logs, traces, and dashboards ensure the platform remains inspectable as traffic and workflow volume grow.
-- The workflow can reason over a real e-commerce application codebase without turning the user-facing services into heavy analysis nodes.
+1. The backend ingest endpoint validates and filters reports before expensive workflow execution begins.
+2. The full SRE workflow runs asynchronously after the API returns `202 Accepted`.
+3. Services are separated by deployment boundary, so the backend, databases, observability stack, and optional UIs are not forced to scale together.
+4. Stateful and high-cost dependencies such as PostgreSQL, Qdrant, Jira, Nylas, and AI providers live outside the backend runtime.
+5. Observability is built in, so throughput limits and slow components can be identified early.
 
-At a high level, the platform scales by keeping the entry tier responsive, the workflow tier asynchronous, and the stateful pieces clearly separated.
+Everything else in this document is a consequence of those choices.
 
-## Requirement Alignment
+## 1. Ingest Is The Real Front Door
 
-From an evaluation perspective, the scaling design supports every required capability in a way that stays modular and easy to demo.
+The primary entry point to the agent platform is `POST /api/ingest` in `backend/src/api/routes/incident_routes.py`.
 
-- Multimodal input scales through a single ingest path that accepts text plus file attachments and preprocesses them before orchestration.
-- Guardrails scale because validation and relevance checks are applied consistently at the boundary before deeper workflow execution begins.
-- Observability scales across the required lifecycle stages: ingest, triage, ticket creation, notification, and resolution.
-- Integrations scale through dedicated adapters for ticketing and email, with communication behavior staying outside the core application tier.
-- The e-commerce requirement is satisfied by using a real open-source commerce codebase as an analysis target for incident investigation.
-- Docker Compose remains the standard deployment contract, which keeps the whole stack reproducible for reviewers.
+That route does the work that should happen before the system commits resources to a report:
 
-This matters because the submission is not only feature-complete. It is also organized so those features remain understandable and workable as load grows.
+- validates required text input and reporter email
+- limits attachment count and file size
+- validates MIME type and magic bytes for uploads
+- preprocesses text and attachments into a consolidated incident payload
+- runs guardrails to block malicious or suspicious input
+- runs an LLM-based relevance check to reject off-topic submissions
 
-## Scaling Principles
+Only after those checks pass does the route start the SRE workflow in the background with `asyncio.create_task(...)`.
 
-The architecture follows five simple ideas that make growth easier to handle.
+This is the most important scaling decision in the project.
 
-### 1. Stateless Intake Layer
+The API does not wait for the full triage loop, ticketing, notifications, or codebase analysis to finish. It returns `202 Accepted` with a request ID and keeps processing asynchronously.
 
-The backend API and the optional SRE platform serve as clean front doors to the system.
+Why that matters:
 
-- They focus on accepting requests, validating inputs, and forwarding work.
-- Request correlation is based on generated request IDs and async context, which makes instances easy to replicate.
-- User-facing services remain focused on transport, orchestration, and response handling rather than long-lived state management.
-- The same intake boundary handles multimodal submissions, which keeps scaling concerns centralized instead of fragmented across multiple services.
+- the user gets immediate confirmation that the report was received
+- the HTTP edge stays responsive under higher report volume
+- expensive workflow capacity is reserved for validated, relevant incidents only
+- backend replicas can focus on intake and orchestration instead of long-lived request handling
 
-That keeps the edge tier simple, responsive, and easy to scale out.
+In practice, this means the user experience remains good even when deeper analysis takes longer.
 
-### 2. Asynchronous Workflow Execution
+## 2. There Are Multiple Ways To Ingest Reports
 
-The ingest API returns `202 Accepted` after validation and preprocessing, then continues the full triage flow asynchronously in the background.
+The platform does not depend on a single frontend to receive incidents.
 
-This is one of the most important scaling decisions in the system because it cleanly separates client responsiveness from workflow execution time.
+Reports can reach the ingest endpoint through multiple paths:
 
-- Incidents are accepted quickly.
-- Downstream analysis can run with richer logic and external integrations.
-- Longer-running operations such as retrieval, reranking, summarization, ticketing, and notifications do not need to block the caller.
-- The same execution model also supports codebase analysis, guardrail enforcement, and integration fan-out without slowing the initial user interaction.
+- direct requests to the backend API
+- the e-commerce platform, which can submit reports to the ingest API
+- the dedicated SRE platform, whose API forwards authenticated reports to the backend ingest route
 
-In practice, that gives the platform a solid foundation for sustained incident intake.
+This is useful for scale and for availability.
 
-### 3. Parallel Tool Orchestration
+If the e-commerce application is degraded, SREs can still use the separate SRE platform. If the SRE platform is unavailable, reports can still be sent directly to the backend API. The backend ingest contract remains the common denominator.
 
-Inside the workflow, the platform uses async execution and parallel tool fan-out to keep analysis efficient and responsive.
+That gives the system a more resilient intake model than a single UI-dependent architecture.
 
-- Tool dispatch is handled concurrently with `asyncio.gather(...)`.
-- Blocking SDK operations are moved off the event loop with `asyncio.to_thread(...)`.
-- The backend benefits from Python async I/O while still integrating with external systems cleanly.
+## 3. The Workflow Scales Because It Is Asynchronous Internally Too
 
-As a result, the workflow is not limited to a single serial chain of work. It can examine one incident through multiple lenses at the same time.
+The backend does not only scale by returning early from the ingest route. It also uses async execution inside the workflow.
 
-### 4. Shared Specialized Services
+The codebase already uses patterns such as:
 
-The application tier stays lean by pushing specialized responsibilities into the systems best suited to handle them.
+- `asyncio.create_task(...)` for background dispatch
+- `asyncio.gather(...)` for parallel tool fan-out
+- `asyncio.to_thread(...)` for blocking SDK and LLM calls
 
-- Qdrant handles similarity retrieval and historical incident context.
-- Jira handles ticket lifecycle management.
-- Nylas handles outbound notification delivery.
-- Grafana, Loki, Prometheus, Alloy, and MLflow handle observability.
-- The e-commerce application remains a dedicated application repository that the workflow can inspect when incidents point to code or behavior regressions.
+That matters because the workflow is I/O-heavy. It talks to LLMs, retrieval systems, ticketing, notification providers, and sometimes the e-commerce codebase. Async orchestration allows one backend instance to make progress on multiple incidents without serializing every external call.
 
-This kind of separation supports scale well: stateless compute at the edge, purpose-built systems behind it.
+This does not eliminate the need for more replicas under higher load, but it does make each replica more efficient.
 
-### 5. Observability As Part Of Scalability
+## 4. Container Boundaries Make Independent Scaling Possible
 
-Scalable systems are not only fast. They are also measurable.
+The repository is already split into separate deployable components:
 
-This platform includes:
+- backend application
+- PostgreSQL
+- Qdrant
+- observability stack
+- optional SRE platform
+- optional e-commerce platform
 
-- structured JSON logs
+Docker Compose is the local deployment contract, not the scaling mechanism itself. The important point is that the services are already separated. That means they do not need to scale as a single unit.
+
+This is valuable because each component has different resource behavior:
+
+- the backend is compute and network heavy
+- PostgreSQL is storage and connection sensitive
+- Qdrant is memory and I/O sensitive
+- observability services have their own ingestion and retention profile
+- UI services and API edges have different traffic patterns from background workflow execution
+
+Because of these boundaries, the architecture can move beyond local compose into independently managed deployments without redesigning the application first.
+
+## 5. Modular Code Keeps Future Decomposition Low Friction
+
+The code is organized into separate domains such as:
+
+- guardrails
+- preprocessing
+- workflow phases
+- Jira integration
+- notifications
+- Qdrant integration
+- observability utilities
+
+That modularity matters because it keeps the current backend simple while preserving room for extraction later.
+
+If traffic or operational complexity increases, pieces such as ticket creation, notification fan-out, codebase analysis, or other workflow phases could be moved into separate workers or managed services with limited impact on the rest of the system.
+
+In other words, the codebase is not written as one large inseparable service. It already has the internal seams needed for further decomposition.
+
+## 6. The Backend Can Scale Horizontally Because State Is Externalized
+
+The backend mostly behaves as an orchestrator. It does not try to keep all important state inside its own process.
+
+Specialized responsibilities are delegated to external systems:
+
+- PostgreSQL for relational persistence
+- Qdrant for vector search and similarity retrieval
+- Jira for ticket lifecycle
+- Nylas for outbound notifications
+- external AI providers for LLM and embedding workloads
+
+This is one of the clearest scaling advantages in the design.
+
+Because databases, retrieval, and AI inference can be managed by cloud providers, backend instances do not have to carry that state locally. Once those dependencies are externalized or managed separately, the backend can scale horizontally much more cleanly.
+
+Why that matters:
+
+- adding backend instances does not require rethinking local state ownership
+- PostgreSQL and Qdrant can scale with the storage systems best suited for them
+- AI throughput can increase independently from backend container count
+- the backend remains a thinner orchestration layer instead of a state-heavy monolith
+
+This is exactly the kind of separation that makes horizontal scaling realistic.
+
+## 7. The Jira Resolution Webhook Has A Natural Serverless Upgrade Path
+
+The Jira resolution flow is handled through a narrow webhook route in `incident_routes.py`.
+
+That handler:
+
+- accepts the Jira payload
+- filters out irrelevant or non-human events
+- projects the payload into the internal resolution model
+- triggers resolution handling and notification dispatch
+
+This is already close to a serverless shape. It is stateless, request-driven, and has a well-bounded responsibility.
+
+Because of that, it would be straightforward to front this path with API Gateway and move the webhook handler into a serverless deployment if webhook burst traffic or isolated scaling became necessary.
+
+That would let webhook traffic scale independently from the main ingest API while preserving the same downstream resolution behavior.
+
+## 8. The E-commerce Platform Is Decoupled From The Agentic Backend
+
+The e-commerce platform is not embedded into the agent runtime. It is a separate application that can send incidents to the backend and can also be analyzed by the workflow when needed.
+
+That separation matters in two ways.
+
+First, the agent platform can work with any application that can reach the ingest API. It is not coupled to one specific commerce deployment.
+
+Second, the codebase analysis step is path-based. The analyzer resolves its target through the `ECOMMERCE_ROOT` environment variable, defaulting to `/ecommerce-platform`.
+
+That means the analyzed application can move without breaking the workflow, as long as the configured path points to the right codebase.
+
+This gives the system useful portability:
+
+- the e-commerce stack can scale independently from the backend
+- another platform can be analyzed later without rewriting the overall triage model
+- changes in where the codebase lives can be handled through configuration rather than logic changes
+
+This is a good example of scale-through-decoupling: the agent does not depend on one hard-coded application layout.
+
+## 9. Observability Makes Scaling Operable
+
+The observability stack does not add raw capacity by itself, but it is what makes capacity problems diagnosable.
+
+The platform includes:
+
+- structured logs
 - request-level correlation IDs
-- end-to-end workflow traces through MLflow
-- metrics-ready service instrumentation
-- Grafana dashboards for operational visibility
-
-That makes it much easier to understand throughput, latency, tool behavior, and integration health as the platform handles more traffic and complexity.
-
-## Runtime Topology
-
-The runtime is deliberately modular, which makes the deployment model clear and easy to reason about.
-
-- The root `docker-compose.yml` includes the backend stack and the observability stack as the default core deployment.
-- `sre-platform/docker-compose.yml` exists as a separate edge stack that can sit in front of the backend when a dedicated incident UI and auth layer is desired.
-- The backend owns ingest, preprocessing, guardrails, workflow orchestration, ticketing, and notifications.
-- The backend can also inspect the e-commerce repository as part of incident investigation, which keeps code-aware triage inside the same end-to-end automation flow.
-- The observability stack stays orthogonal to business logic, which means operational visibility can grow alongside the platform.
-
-This deployment model is intentionally centered on Docker Compose, which aligns with the evaluation requirement for consistent, reproducible execution.
-
-This topology makes the system easy to explain, deploy, and extend.
-
-## How The Platform Scales
-
-### Backend
-
-The backend is designed as an async FastAPI service with a clear orchestration role.
-
-Its main scaling strengths are:
-
-- fast request handling at the HTTP boundary
-- asynchronous workflow continuation after the incident is accepted
-- concurrent tool execution inside the workflow
-- lightweight application instances that rely on external systems for specialized work
-
-The ingest path is also designed to be robust.
-
-Before an incident enters the workflow, the backend can:
-
-- validate files and MIME types
-- preprocess text and attachments
-- perform OCR on supported images
-- apply multiple guardrail checks
-- run an LLM-based relevance filter
-
-Together, these checks make sure that well-formed, relevant incident data enters the automated triage pipeline.
-
-That directly supports two of the most important submission requirements: multimodal input and guardrails.
-
-### SRE Platform
-
-The optional SRE platform adds a dedicated operator-facing edge without increasing the complexity of the backend itself.
-
-- `sre-platform/api` provides authentication and report forwarding.
-- `sre-platform/web` provides the user-facing experience.
-- The platform uses a clean API handoff to the backend, which keeps the responsibilities separate and deployable by layer.
-
-This is a strong design choice because the UI, auth layer, and backend triage engine can evolve independently.
-
-### Qdrant
-
-Qdrant serves as the shared intelligence layer for incident similarity and historical retrieval.
-
-The platform uses it to classify incidents into patterns such as:
-
-- new incident
-- alert storm
-- historical regression
-
-That gives every backend instance access to the same retrieval-backed operational memory and helps keep triage behavior consistent across deployments.
-
-The startup flow also bootstraps a curated incident corpus, which is excellent for reproducibility, demo quality, and deterministic behavior across environments.
-
-### PostgreSQL
-
-PostgreSQL is provisioned as the structured data layer for relational growth, analytics, and future metadata expansion.
-
-That is a good architectural choice because it keeps the current workflow path lean while preserving a clear place for structured persistence as the platform evolves.
-
-### Observability Stack
-
-Observability is one of the strongest parts of the system, and it is a major reason the platform scales well operationally.
-
-The stack includes:
-
-- Grafana for dashboards
-- Prometheus for metrics collection
-- Loki for centralized logs
-- Grafana Alloy for collection and shipping
-- MLflow for workflow traces
-
-These components collectively support visibility across the required operational stages:
-
-- ingest
-- triage
-- ticket
-- notify
-- resolved
-
-The operational flow is straightforward:
-
-- the backend emits structured logs to stdout
-- Docker captures the log stream
-- Alloy discovers the backend container and forwards logs to Loki
-- Grafana provides the unified visualization layer
-- MLflow captures workflow traces and LLM activity
-
-This gives the project a mature, operations-friendly architecture rather than a black-box demo.
-
-For evaluation, that is important because observability is not limited to a single service. It follows the main business flow end to end.
-
-## Technical Decisions That Strengthen Scalability
-
-### 1. Async-First Python Backend
-
-The backend uses FastAPI plus async I/O to maximize concurrency for network-heavy operations such as LLM calls, ticketing, and notifications.
-
-Why this works well:
-
-- high concurrency for I/O-bound workloads
-- clean integration with external providers
-- excellent fit for incident-driven orchestration
-
-### 2. `202 Accepted` Contract For Ingest
-
-The platform acknowledges incident intake quickly, then continues with richer workflow execution behind the scenes.
-
-Why this works well:
-
-- fast user experience
-- clear separation between intake and processing
-- better operational handling of longer reasoning flows
-
-### 3. Dedicated Edge Layer
-
-The SRE platform is kept separate from the triage engine.
-
-Why this works well:
-
-- UI and auth concerns stay isolated
-- the operator experience can evolve independently
-- backend compute remains focused on incident automation
-
-### 4. Externalized Integrations
-
-The platform connects to specialized external systems instead of reimplementing them internally.
-
-Why this works well:
-
-- Jira handles incident tracking
-- Nylas handles communication delivery
-- Qdrant handles semantic retrieval
-- observability services handle telemetry and traceability
-
-This also maps cleanly to the required integration story: ticketing, email, and communicator behavior in a demoable end-to-end flow.
-
-This keeps the application layer modular, focused, and easy to reason about.
-
-### 5. Shared Retrieval Layer
-
-Qdrant gives the platform a centralized intelligence service for incident similarity.
-
-Why this works well:
-
-- retrieval quality is shared across the deployment
-- all workflow instances can reason over the same operational memory
-- classification remains grounded in prior incidents rather than isolated per node
-
-### 6. Observability-Native Design
-
-Observability is not bolted on afterward. It is built into the architecture.
-
-Why this matters:
-
-- every incident can be correlated end to end
-- workflow phases are easier to inspect and explain
-- the system becomes more scalable operationally because it stays measurable under load
-
-### 7. Reproducible Modular Deployment
-
-The repository uses a compose-based, multi-stack layout.
-
-Why this works well:
-
-- easy local reproduction
-- clear service boundaries
-- straightforward path from demo deployment to orchestrated deployment patterns
-
-## Assumptions In The Current Design
-
-This scalability model is based on a few clear assumptions.
-
-- The root `.env` file is the canonical runtime configuration.
-- The default deployment unit is the backend plus the observability stack.
-- The SRE platform is an optional but production-friendly edge layer.
-- Request IDs are propagated across the workflow and integrations for traceability.
-- Jira webhooks represent the standard deployed resolution path.
-- LLM, embedding, ticketing, and notification providers can be selected through configuration.
-- Demo environments commonly run with `APP_ENV=dev` so the full workflow remains highly visible.
-- Docker Compose is the canonical way to run the submission end to end.
-- The e-commerce repository is treated as a realistic application target for incident analysis, not just a placeholder asset.
-
-## Why This Architecture Sells Well
-
-This project presents the kinds of scaling patterns people expect from modern production software.
-
-- Fast, stateless intake at the edge
-- Asynchronous background processing for heavier reasoning
-- Parallel tool orchestration inside the workflow
-- Shared semantic retrieval through a dedicated vector store
-- Real integrations with ticketing and notifications
-- End-to-end observability across logs, traces, and dashboards
-- Practical analysis of a real e-commerce application codebase inside the triage loop
-- Reproducible Docker Compose deployment for consistent review and demo execution
-
-In other words, the platform is not just functional. It is structured in a way that supports growth in incident volume, analysis depth, and operational complexity.
+- metrics collection
+- workflow traces
+- Grafana dashboards
+- Loki log aggregation
+- Prometheus metrics scraping
+- Grafana Alloy collection and shipping
+- MLflow tracing for workflow and LLM activity
+
+This is important because scaling problems are rarely abstract. They show up as slow ingest responses, queueing behavior, failed integrations, noisy tickets, slow LLM calls, or overloaded dependencies.
+
+The observability layer makes it possible to detect those bottlenecks and decide where to scale or refactor next.
+
+Without that visibility, a system may still run, but it does not scale well operationally.
+
+## Assumptions
+
+This scaling model depends on a few assumptions:
+
+- the backend ingest route remains the canonical intake contract
+- the repository root `.env` remains the main runtime configuration source
+- Docker Compose remains the standard local and demo deployment method
+- PostgreSQL, Qdrant, and AI services can be moved to managed infrastructure when more scale is needed
+- backend instances remain mostly stateless apart from external dependencies
+- the analyzed application is referenced through configuration such as `ECOMMERCE_ROOT`
+- the e-commerce platform, SRE platform, and direct API clients may be available independently
+- observability remains enabled so bottlenecks can be identified in production-like runs
+
+## Technical Decisions That Enable Scale
+
+The main technical decisions are:
+
+1. The ingest endpoint performs validation and guardrails first, then returns `202 Accepted` while the workflow continues asynchronously.
+2. The system supports multiple report-ingress paths instead of depending on a single frontend.
+3. The deployment is split into separate services so backend, storage, retrieval, UI, and observability concerns can evolve independently.
+4. Stateful and high-cost dependencies are externalized so the backend can scale horizontally.
+5. The workflow uses async concurrency instead of serial blocking calls.
+6. The codebase is modular enough to extract heavy responsibilities into separate managed services later if needed.
+7. The Jira webhook is narrow and stateless enough to be moved to serverless infrastructure if burst scaling becomes important.
+8. The analyzed e-commerce application is configured by path, which keeps the agent reusable across different target systems.
+9. Observability is built in so scaling limits can be measured instead of guessed.
 
 ## Bottom Line
 
-The software scales by combining three clear strengths:
+The platform scales because it avoids turning every concern into the same runtime problem.
 
-- lightweight, replicable entry services
-- asynchronous workflow execution for deeper incident automation
-- shared specialized systems for retrieval, integrations, and observability
+- intake is fast and protected by guardrails
+- deeper triage runs asynchronously
+- services are separated by deployment boundary
+- specialized dependencies can be managed independently
+- the analyzed application is decoupled from the agent platform
+- observability makes bottlenecks visible
 
-Together, those strengths make the project easy to present to hackathon judges: fast intake, intelligent background processing, strong modularity, and clear operational visibility across the full incident lifecycle.
+That gives the project a realistic path from hackathon deployment to a higher-throughput system without changing the core architecture.
