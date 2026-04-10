@@ -36,6 +36,7 @@ ATLASSIAN_EMAIL=your_jira_email@example.com
 ATLASSIAN_API_TOKEN=your_jira_api_token      # https://id.atlassian.com/manage-profile/security/api-tokens
 NYLAS_API_KEY=your_nylas_api_key             # https://www.nylas.com/
 NYLAS_GRANT_ID=your_nylas_grant_id
+COHERE_API_KEY=your_cohere_api_key           # https://cohere.com/ (optional — enables semantic reranking)
 ```
 
 ```bash
