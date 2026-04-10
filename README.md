@@ -200,6 +200,12 @@ curl -X POST http://localhost:8000/api/ingest \
 
 ![alt text](docs/mlflow_3.png)
 
+**View from Grafana**
+
+![alt text](docs/grafana_1.png)
+
+![alt text](docs/grafana_2.png)
+
 ---
 
 ## Integrations
