@@ -66,15 +66,19 @@ class GuardrailsTemplateRegistry:
 
 DEFAULT_TEMPLATES: dict[str, list[str]] = {
     "prompt_injection": [
-        "ignore previous",
-        "disregard",
+        "ignore previous instructions",
+        "disregard all",
         "system prompt",
-        "act as",
-        "pretend",
+        "forget everything",
+        "override your instructions",
+        "you are now",
+        "enter developer mode",
+        "jailbreak",
     ],
-    "xss": ["<script>", "javascript:", "onerror=", "onload="],
-    "sql_injection": ["SELECT *", "DROP TABLE", "UNION SELECT", "--", "' OR "],
-    "file_paths": ["../", "/etc/", "/var/", "C:\\", "..\\"],
+    "xss": ["<script", "javascript:", "onerror=", "onload=", "vbscript:", "data:text/html"],
+    "sql_injection": ["UNION SELECT", "DROP TABLE", "DELETE FROM", "TRUNCATE TABLE", "SLEEP(", "BENCHMARK("],
+    "code_execution": ["eval(", "exec(", "os.system(", "subprocess", "popen(", "Invoke-Expression"],
+    "path_traversal": ["../", "..\\", "/etc/passwd", "/proc/self/", "%2e%2e"],
 }
 
 

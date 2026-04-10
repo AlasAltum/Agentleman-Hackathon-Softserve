@@ -7,7 +7,11 @@ from typing import Any, List
 from src.guardrails import GuardrailsEngine
 from src.guardrails.models import ThreatLevel
 from src.guardrails.relevance_guardrail import RelevanceGuardrail
-from src.guardrails.validators import ContentTypeGuardrail
+from src.guardrails.validators import (
+    ContentTypeGuardrail,
+    FileMagicBytesGuardrail,
+    _MAX_FILE_SIZE,
+)
 from src.utils.logger import logger, bind_request_context, generate_request_id
 from src.utils.tracing import start_run
 from src.workflow.models import IncidentInput, PreprocessedIncident, ResolutionPayload
@@ -20,6 +24,8 @@ import structlog
 router = APIRouter(prefix="/api")
 
 _MAX_FILES = 5
+_MAX_TEXT_DESC_LENGTH = 10_000  # characters
+_EMAIL_RE = re.compile(r"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$", re.IGNORECASE)
 _BACKGROUND_WORKFLOW_TASKS: set[asyncio.Task] = set()
 
 
@@ -63,23 +69,58 @@ async def ingest_incident(
 
     logger.info("ingest_started", text_desc_length=len(text_desc), num_attachments=len(file_attachments))
 
+    # ── Early input validation ────────────────────────────────────────────
+    if not text_desc or not text_desc.strip():
+        raise HTTPException(status_code=400, detail="Incident description cannot be empty.")
+
+    if len(text_desc) > _MAX_TEXT_DESC_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Description too long ({len(text_desc)} chars, max {_MAX_TEXT_DESC_LENGTH}).",
+        )
+
+    if not _EMAIL_RE.match(reporter_email):
+        raise HTTPException(status_code=400, detail="Invalid reporter email address.")
+
     if len(file_attachments) > _MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Too many files: maximum is {_MAX_FILES}.")
 
+    # ── File validation (MIME + magic bytes + size) ───────────────────────
     file_contents: list[bytes] = []
     file_mime_types: list[str] = []
     file_names: list[str] = []
 
     ct_guardrail = ContentTypeGuardrail()
+    magic_guardrail = FileMagicBytesGuardrail()
+
     for upload in file_attachments:
         content = await upload.read()
         mime_type = upload.content_type or ""
         file_name = upload.filename or ""
 
+        # 1. Reject oversized files
+        if len(content) > _MAX_FILE_SIZE:
+            logger.warning("blocked_file_size", file_name=file_name, size=len(content))
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{file_name}' exceeds maximum size of {_MAX_FILE_SIZE // (1024*1024)} MB.",
+            )
+
+        # 2. Reject empty files
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail=f"File '{file_name}' is empty.")
+
+        # 3. MIME type allow-list
         ct_result = ct_guardrail.validate("", mime_type=mime_type)
         if not ct_result.is_safe:
             logger.warning("blocked_mime_type", file_name=file_name, mime_type=mime_type, reason=ct_result.message)
             raise HTTPException(status_code=400, detail=ct_result.message)
+
+        # 4. Magic-byte verification (actual file content vs claimed MIME)
+        magic_result = magic_guardrail.validate(content, mime_type, file_name)
+        if not magic_result.is_safe:
+            logger.warning("blocked_magic_bytes", file_name=file_name, reason=magic_result.message)
+            raise HTTPException(status_code=400, detail=magic_result.message)
 
         file_contents.append(content)
         file_mime_types.append(mime_type)
