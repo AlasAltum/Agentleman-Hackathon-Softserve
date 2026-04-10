@@ -1,118 +1,109 @@
 # AGENTS_USE.md
 
-For each Agent you've implemented provide the following information:
-
-# Agent #1
 ## 1. Agent Overview
 
-**Agent Name:** [Name of your agent]
-**Purpose:** [One-paragraph summary of what the agent does and the problem it solves]
-**Tech Stack:** [Languages, frameworks, LLM provider, model(s) used]
+**Agent Name:** Agentleman  
+**Purpose:** Agentleman is an SRE incident intake and triage agent for our e-commerce application. It accepts multimodal incident reports, validates and preprocesses them, retrieves similar incidents from Qdrant, runs structured triage with LLM reasoning and tool calls, creates a Jira ticket, notifies the engineering team, and sends a resolution email back to the original reporter when the ticket is closed.  
+**Tech Stack:** Python, FastAPI, LlamaIndex Workflows, Qdrant, MLflow, Grafana, Loki, Prometheus, Jira Cloud, Nylas email, Docker Compose, configurable LLM providers including Google Gemini, OpenRouter, OpenAI, Anthropic, and Ollama.
 
 ---
 
 ## 2. Agents & Capabilities
 
-List each agent (or sub-agent) in your system. For single-agent architectures, describe the one agent in detail. For multi-agent systems, document each agent separately.
+This is a single-agent architecture with one orchestrating agent and several internal tools.
 
-### Agent: [Agent Name]
+### Agent: Agentleman
 
 | Field | Description |
 |-------|-------------|
-| **Role** | What is this agent responsible for? |
-| **Type** | Autonomous / Semi-autonomous / Human-in-the-loop |
-| **LLM** | Which model powers this agent? |
-| **Inputs** | What data does this agent receive? (text, images, logs, etc.) |
-| **Outputs** | What does this agent produce? (tickets, summaries, notifications, etc.) |
-| **Tools** | Which tools or integrations does this agent use? |
-
-*Remember: Repeat this block for each agent in your system.*
+| **Role** | End-to-end incident triage and routing agent |
+| **Type** | Semi-autonomous |
+| **LLM** | Configurable via environment; supports Gemini, OpenRouter, OpenAI, Anthropic, and Ollama |
+| **Inputs** | Text description, reporter email, image attachments, log/text attachments, retrieved incident context, e-commerce codebase context |
+| **Outputs** | Classification, severity, technical summary, Jira ticket, team notification, reporter acknowledgement, reporter resolution email |
+| **Tools** | Qdrant retrieval, reranking, business impact tool, telemetry analyzer, codebase analyzer, Jira adapter, notification bridge, observability stack |
 
 ---
 
 ## 3. Architecture & Orchestration
 
-Describe how your agents are orchestrated and how data flows through the system.
-
-- **Architecture diagram:** [Include an image or ASCII/SVG diagram showing the agentic flow]
-- **Orchestration approach:** [How are agents coordinated? Sequential pipeline, event-driven, supervisor pattern, etc.]
-- **State management:** [How is state maintained between steps? In-memory, database, message queue, etc.]
-- **Error handling:** [What happens when an agent fails or produces unexpected output?]
-- **Handoff logic:** [If multi-agent: how do agents pass work to each other?]
+- **Architecture diagram:** `submit -> preprocess -> guardrails -> retrieve -> rerank -> classify -> tools -> ticket -> notify -> resolved webhook -> reporter notify`
+- **Orchestration approach:** Event-driven workflow using `LlamaIndex Workflow` in `backend/src/workflow/sre_workflow.py`.
+- **State management:** Request-scoped workflow context in memory plus shared external systems: Qdrant for retrieval, Jira for ticket state, and observability services for logs/traces/metrics.
+- **Error handling:** Invalid files and malicious inputs are rejected early. Retrieval and reranking degrade gracefully. Notification and ticketing failures are logged with structured events.
+- **Handoff logic:** Single-agent system. Internal phases pass structured models such as `PreprocessedIncident`, `ClassificationResult`, `TriageResult`, and `ResolutionPayload` between steps.
 
 ---
 
 ## 4. Context Engineering
 
-Explain how your agents manage context to produce accurate and relevant results.
-
-- **Context sources:** [What information is fed to the agent? Code files, documentation, logs, user input, etc.]
-- **Context strategy:** [How do you select, filter, or prioritize context? RAG, summarization, windowing, etc.]
-- **Token management:** [How do you handle context window limits?]
-- **Grounding:** [How do you ensure the agent's output is grounded in actual data rather than hallucinated?]
+- **Context sources:** User text, extracted file content, historical incidents from Qdrant, tool outputs, and the e-commerce codebase when the incident suggests a code or regression issue.
+- **Context strategy:** Preprocess and consolidate attachments first, then use retrieval plus reranking before classification and tool dispatch.
+- **Token management:** Inputs are trimmed and summarized before LLM use; tool findings and prompt inputs are capped to keep prompts bounded.
+- **Grounding:** The workflow grounds outputs in retrieved incidents, validated attachments, tool results, and the original incident report. Jira ticket content is based on the reported incident data rather than free-form agent narrative.
 
 ---
 
 ## 5. Use Cases
 
-Describe the main use cases your agent supports. For each use case, walk through the flow from trigger to resolution.
+### Use Case 1: Multimodal incident triage
 
-### Use Case 1: [Name]
+- **Trigger:** An engineer or customer submits a report with text plus an image or log file.
+- **Steps:** `/api/ingest` accepts the form, extracts attachment content, runs MIME and threat validation, performs relevance checking, dispatches the workflow, retrieves similar incidents, classifies the issue, runs tools, creates a Jira ticket, and notifies the engineering team.
+- **Expected outcome:** A triaged incident with classification, severity, Jira ticket, and notification fan-out.
 
-- **Trigger:** [What initiates this flow?]
-- **Steps:** [Step-by-step description of what happens]
-- **Expected outcome:** [What is the end result?]
+### Use Case 2: Resolution loop
 
-### Use Case 2: [Name]
-
-*(Repeat as needed)*
+- **Trigger:** A Jira issue created by the agent is moved to a resolved state.
+- **Steps:** The Jira webhook hits `/api/webhook/jira/resolved`, the backend validates the transition, projects it into a `ResolutionPayload`, records the resolution event, and sends the reporter a resolution email.
+- **Expected outcome:** The original reporter is notified that the incident has been resolved.
 
 ---
 
 ## 6. Observability
 
-Document how you implemented observability across your agent pipeline.
-
-- **Logging:** [What is logged? Structured/unstructured? Where are logs stored?]
-- **Tracing:** [Are agent steps traced end-to-end? What tool is used? (e.g., OpenTelemetry, Langfuse, LangSmith)]
-- **Metrics:** [What metrics are collected? Latency, token usage, success/failure rates, etc.]
-- **Dashboards:** [Are there any dashboards? Screenshots or links appreciated.]
+- **Logging:** Structured JSON logs via `structlog`. Main events include `ingest_started`, `preprocessing_complete`, `workflow_dispatched`, `ticket_created`, `team_notification_dispatched`, and `resolution_notification_dispatched`.
+- **Tracing:** End-to-end workflow tracing through MLflow with request correlation and LlamaIndex autologging.
+- **Metrics:** Prometheus-compatible service instrumentation around Jira and notifications, plus workflow-stage visibility through the observability stack.
+- **Dashboards:** Grafana dashboards backed by Loki, Prometheus, and MLflow.
 
 ### Evidence
 
-Provide screenshots, log samples, or trace exports that demonstrate your observability implementation is functional and covers the main agent stages (ingest → triage → ticket → notify → resolved).
+- Logs: `docker compose logs hackaton-backend | grep request_id`
+- Traces: MLflow at `http://localhost:5001`
+- Dashboards: Grafana at `http://localhost:3000`
+- Code paths: `backend/src/api/routes/incident_routes.py`, `backend/src/workflow/sre_workflow.py`, `backend/src/services/jira/observability.py`, `backend/src/services/notifications/observability.py`
 
 ---
 
 ## 7. Security & Guardrails
 
-Document the security measures implemented in your agent.
-
-- **Prompt injection defense:** [What techniques are used? Input sanitization, system prompt hardening, output validation, etc.]
-- **Input validation:** [How are user inputs (text, files, images) validated before processing?]
-- **Tool use safety:** [How do you prevent the agent from performing unintended or dangerous actions?]
-- **Data handling:** [How are API keys, user data, and sensitive information protected?]
+- **Prompt injection defense:** `GuardrailsEngine` blocks known prompt-injection, XSS, and SQL injection patterns before workflow execution.
+- **Input validation:** `ContentTypeGuardrail` validates attachment MIME types; preprocessing blocks unsupported or dangerous file extensions.
+- **Tool use safety:** The workflow only calls bounded internal tools and adapters. Ticketing and notifications go through explicit Jira and notification bridge functions rather than arbitrary command execution.
+- **Data handling:** Secrets come from `.env`; request correlation and logs avoid exposing credentials; external integrations are isolated behind adapters.
 
 ### Evidence
 
-Provide test results or examples showing your guardrails in action — e.g., attempted prompt injections and how the agent responded.
+- Guardrail code: `backend/src/guardrails/validators.py`, `backend/src/guardrails/input_guardrails.py`, `backend/src/guardrails/relevance_guardrail.py`
+- Endpoint tests: `backend/tests/test_ingest_endpoint.py`
+- Notification tests: `backend/src/services/notifications/tests/test_bridge.py`
+- Jira tests: `backend/src/services/jira/tests/test_bridge.py`
 
 ---
 
 ## 8. Scalability
 
-Summarize how your solution is designed to scale. Reference your `SCALING.md` for the full analysis.
-
-- **Current capacity:** [What can the current implementation handle?]
-- **Scaling approach:** [Horizontal, vertical, queue-based, etc.]
-- **Bottlenecks identified:** [What are the known limitations?]
+- **Current capacity:** The system supports concurrent multimodal incident intake, asynchronous workflow execution, and externalized ticketing/notification handling through Docker Compose.
+- **Scaling approach:** Fast stateless intake at the edge, asynchronous background workflow execution, and shared specialized services for retrieval, ticketing, notifications, and observability.
+- **Reference:** See `SCALING.md` for the full scaling analysis, assumptions, and technical decisions.
 
 ---
 
 ## 9. Lessons Learned & Team Reflections
 
-- **What worked well:** [Approaches, tools, or decisions that paid off]
-- **What you would do differently:** [With more time or resources]
-- **Key technical decisions:** [Trade-offs you made and why]
+- **What worked well:** Event-driven workflow orchestration, early guardrails, retrieval-backed triage, and strong observability made the system easy to demo and explain.
+- **What you would do differently:** With more time, we would extend the communication layer beyond email-only team fan-out and harden the long-running workflow execution path.
+- **Key technical decisions:** We chose one orchestrating agent, async FastAPI ingestion, Qdrant-backed retrieval, Jira-based ticket lifecycle, and MLflow/Grafana/Loki/Prometheus observability to keep the system modular and reviewer-friendly.
 
 ---

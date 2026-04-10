@@ -46,34 +46,6 @@ EMBED_PROVIDER=google
 EMBED_MODEL=gemini-embedding-2-preview
 ```
 
-**OpenRouter (Multi-Model Support)**
-```env
-LLM_PROVIDER=openrouter
-LLM_MODEL=openrouter/auto  # or any other OpenRouter model
-OPENROUTER_API_KEY=your_openrouter_api_key_here
-EMBED_PROVIDER=openai
-EMBED_MODEL=text-embedding-3-small
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-**OpenAI**
-```env
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4-turbo
-OPENAI_API_KEY=your_openai_api_key_here
-EMBED_PROVIDER=openai
-EMBED_MODEL=text-embedding-3-small
-```
-
-**Anthropic**
-```env
-LLM_PROVIDER=anthropic
-LLM_MODEL=claude-3-5-sonnet-20241022
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-EMBED_PROVIDER=openai  # Use OpenAI for embeddings
-EMBED_MODEL=text-embedding-3-small
-OPENAI_API_KEY=your_openai_api_key_here
-```
 
 **Local Ollama (Free - Requires Ollama Installation)**
 ```env
@@ -91,10 +63,12 @@ ATLASSIAN_API_TOKEN=your_jira_api_token
 JIRA_BASE_URL=https://your-domain.atlassian.net
 ```
 
-#### Optional: SMS/WhatsApp Notifications (Zavu)
+#### Optional: Nylas Email Notifications
 ```env
-SMS_ID=your_sms_id
-ZAVU_API_KEY=your_zavu_api_key
+NYLAS_API_KEY=your_nylas_api_key
+NYLAS_GRANT_ID=your_nylas_grant_id
+NYLAS_EMAIL_ADDRESS=alerts@example.com
+NYLAS_TEAM_EMAIL_RECIPIENTS=sre-team@example.com
 ```
 
 > ℹ️ Other settings have sensible defaults and can be left as-is for local development.
@@ -118,7 +92,7 @@ docker compose up --build
 - **Grafana Dashboards** → http://localhost:3000 (admin/admin)
 - **Prometheus Metrics** → http://localhost:9090
 - **Loki Log Aggregation** → http://localhost:3100
-- **MLflow Experiment Tracking** → http://localhost:5001
+- **MLflow Usage Traces** → http://localhost:5001
 
 Wait for all services to be healthy (typically 30-60 seconds).
 
