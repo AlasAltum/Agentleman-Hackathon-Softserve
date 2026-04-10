@@ -19,7 +19,7 @@ The agent ingests multimodal incident reports (text + images/logs), performs int
 - ✅ **Multimodal Input**: Fully implemented with file processing pipeline
 - ✅ **Guardrails**: Complete 3-layer security validation system
 - ✅ **Observability**: Full open-source observability stack deployed
-- ✅ **Integrations**: Working Jira, Confluence, and Zavu notification integrations
+- ✅ **Integrations**: Working Jira and Nylas email integrations
 - ✅ **E-Commerce Codebase**: Complete Medusa + Next.js storefront with incident reporting
 - ✅ **End-to-End Flow**: Functional from submission → triage → ticket → resolution
 
@@ -82,7 +82,7 @@ curl -X POST http://localhost:8000/api/ingest \
 | **Multimodal Input** | Text + image/log file support via `/api/ingest` with file attachment handling | `backend/src/api/routes/incident_routes.py` accepts `file_attachments` (PDFs, images, logs); content extracted via LlamaHub. **Verify**: Submit incident with file attachment → check logs for extraction |
 | **Guardrails** | Input validation, prompt injection defense, content threat detection, LLM relevance check | `backend/src/guardrails/` module: `validators.py` (MIME), `input_guardrails.py` (threats), `relevance_guardrail.py` (LLM check). **Verify**: Submit malicious input → rejected with error |
 | **Observability** | Structured logs (structlog), end-to-end traces (MLflow autolog), Prometheus metrics, Loki aggregation, Grafana dashboards | Full stack: MLflow (traces), Prometheus (metrics), Loki (logs), Grafana (dashboards). **Verify**: Submit incident → check http://localhost:5001 (traces), http://localhost:3000 (dashboards) |
-| **Integrations** | Jira (ticket creation/status tracking), Confluence (documentation), Zavu (email/SMS/Slack notifications) | `backend/src/integrations/jira/`, `backend/src/services/notification-zavu/`. **Verify**: Submit incident → Jira ticket created, email sent to reporter |
+| **Integrations** | Jira ticketing plus Nylas email notifications for team and reporter flows | `backend/src/services/jira/`, `backend/src/services/notifications/`. **Verify**: Submit incident → Jira ticket created, team email sent, reporter email sent |
 | **E-Commerce Codebase** | Medusa e-commerce backend + Next.js storefront (medium complexity) | `ecommerce-platform/` with shared PostgreSQL. **Verify**: Visit http://localhost:8001 → Support → Report Issue → submit incident |
 
 ### ✅ End-to-End Flow Fully Functional
@@ -103,7 +103,7 @@ curl -X POST http://localhost:8000/api/ingest \
    ↓
 5. TICKET CREATED in Jira (with full context)
    ↓
-6. TEAM NOTIFIED (email/Slack via Zavu)
+6. TEAM NOTIFIED (email via Nylas)
    ↓
 7. ENGINEER RESOLVES in Jira
    ↓
@@ -290,16 +290,15 @@ Response includes `ticket_id` confirming integration with Jira backend.
 
 1. **Jira Cloud API** (`backend/src/integrations/jira/`)
    - ✅ Creates issues on incident ingestion with full technical context
-   - ✅ Links to Confluence for RCA documentation
    - ✅ Listens for Jira webhooks on issue status change
    - ✅ Updates reporter email on resolution
    - **Verify**: Submit incident → check Jira for new ticket
 
-2. **Zavu Notifications** (`backend/src/services/notification-zavu/`)
-   - ✅ Sends email alerts to engineering team
-   - ✅ SMS notifications for critical incidents (optional)
-   - ✅ Slack integration (configurable)
-   - **Verify**: Submit incident → check email for notification
+2. **Nylas Email Notifications** (`backend/src/services/notifications/`)
+   - ✅ Sends email alerts to the engineering team
+   - ✅ Sends acknowledgement emails to the reporter when a ticket is created
+   - ✅ Sends resolution emails to the reporter when Jira marks the issue as resolved
+   - **Verify**: Submit incident → check email delivery for team and reporter notifications
 
 ### Complete Ticketing Flow (End-to-End)
 
@@ -455,7 +454,7 @@ docker compose exec db pg_isready -U postgres  # PostgreSQL
 - ✅ **Multimodal Input** — Text + images/logs via `/api/ingest` with file processing
 - ✅ **Guardrails** — MIME validation, threat detection, LLM relevance check
 - ✅ **Observability** — MLflow traces, Prometheus metrics, Loki logs, Grafana dashboards
-- ✅ **Integrations** — Jira, Confluence, Zavu (email/SMS/Slack) - functional
+- ✅ **Integrations** — Jira and Nylas email notifications - functional
 - ✅ **E-Commerce** — Medusa backend + Next.js storefront with incident reporting
 
 ### ✅ End-to-End Flow (Complete & Testable)
