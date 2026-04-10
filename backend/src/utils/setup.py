@@ -249,22 +249,29 @@ def _setup_embeddings(provider: str) -> None:
 
 def _setup_gemini_embeddings(api_key: Optional[str], model: Optional[str]) -> None:
     """Setup Google Gemini embeddings.
-    
+
     Models:
         - gemini-embedding-2-preview (default, recommended)
         - text-embedding-004
+
+    Note: embed_batch_size=1 avoids silent batch failures in preview models
+    where the API returns partial results causing LlamaIndex KeyErrors.
     """
     from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
-    
+
     api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError(
             "API key required for Gemini embeddings. Set GOOGLE_API_KEY or LLM_API_KEY"
         )
-    
+
     model = model or os.getenv("EMBED_MODEL", "gemini-embedding-2-preview")
-    
-    Settings.embed_model = GoogleGenAIEmbedding(model_name=model, api_key=api_key)
+
+    Settings.embed_model = GoogleGenAIEmbedding(
+        model_name=model,
+        api_key=api_key,
+        embed_batch_size=1,
+    )
 
 
 def _setup_openrouter_embeddings(

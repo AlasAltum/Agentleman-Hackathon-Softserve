@@ -2,11 +2,12 @@ import importlib
 import asyncio
 import os
 import uuid
+from time import perf_counter
 from typing import Optional
 
 from llama_index.core.llms import ChatMessage
 
-from src.utils.logger import logger
+from src.utils.logger import logger, log_phase_start, log_phase_success, log_phase_failure
 from src.utils.setup import get_settings
 from src.workflow.models import PreprocessedIncident, ResolutionPayload, TicketInfo, TriageResult
 
@@ -17,14 +18,43 @@ _RESOLUTION_POLLER_TASKS: set[asyncio.Task[None]] = set()
 
 
 _SUMMARY_PROMPT = """\
-You are an SRE lead writing a Jira ticket for an incident. Given the investigation findings below, produce:
+You are a senior SRE lead writing a Jira incident ticket. Your audience is both the engineering \
+team (who need technical precision) and engineering management (who need to understand business \
+consequences quickly).
 
-1. TITLE: A concise one-line title (max 80 chars). Format: [SEVERITY] Short description of root cause.
-2. SUMMARY: 2-3 sentence executive summary of what happened, root cause, and immediate impact.
-3. ROOT_CAUSE: One paragraph with the specific technical root cause.
-4. IMPACT: One sentence on affected users/flows.
-5. ACTION: Bullet list of 2-4 concrete remediation steps.
+Given the investigation findings below, produce the following sections:
 
+1. TITLE: One-line title (max 80 chars). Format: [SEVERITY] Short description of root cause.
+
+2. SUMMARY: 2-3 sentences covering what happened, the technical root cause, and the \
+   business-level consequence (e.g. revenue loss, users affected, SLA risk). \
+   Lead with the business impact if it is significant.
+
+3. ROOT_CAUSE: One paragraph with the specific technical root cause. Be precise: name the \
+   service, metric, error, or code path that caused the failure.
+
+4. IMPACT: Two parts on separate lines:
+   - Technical: affected services, error rates, latency figures.
+   - Business: estimated revenue loss, users affected, Customer Impact Score, and any SLA \
+     breach risk. Pull exact figures from the business_impact findings if available.
+
+5. ACTION: Bullet list of 3-5 concrete remediation steps ordered by priority. \
+   Include at least one step addressing the business risk (e.g. "Notify customer success \
+   team if outage exceeded X minutes").
+
+6. BUSINESS_RISK: One sentence summarising the financial exposure and whether it warrants \
+   immediate escalation to management. Use the estimated dollar figures from business_impact \
+   if present.
+
+Rules:
+- Always include BUSINESS_RISK even if the financial figures are estimates.
+- If business_impact findings show CRITICAL severity, start SUMMARY with "⚠ HIGH BUSINESS IMPACT:".
+- If incident type is "Alert Storm", the ticket is a NEW ticket (not an update). \
+  Reflect in SUMMARY that this is a recurring alert still active, and in ACTION \
+  include a step to suppress or deduplicate downstream alerts.
+- Respond with exactly these section labels, each starting a new line (e.g. "TITLE: ...").
+
+---
 Severity: {severity}
 Incident type: {incident_type}
 Reporter: {reporter_email}
@@ -34,8 +64,6 @@ Original report:
 
 Tool findings:
 {tool_findings}
-
-Respond with exactly these sections, each on a new line starting with the label (e.g. "TITLE: ...").
 """
 
 
@@ -46,9 +74,9 @@ async def _llm_summarize(triage: TriageResult, preprocessed: PreprocessedInciden
         return {}
 
     tool_findings = "\n\n".join(
-        f"[{r.tool_name}]:\n{r.findings[:2000]}"  # cap per tool to avoid huge prompts
+        f"[{r.tool_name}]:\n{r.findings[:2000]}"
         for r in triage.tool_results
-        if r.findings and not r.findings.startswith("Business impact") and not r.findings.startswith("Telemetry")
+        if r.findings
     ) or "No tool findings available."
 
     prompt = _SUMMARY_PROMPT.format(
@@ -60,13 +88,15 @@ async def _llm_summarize(triage: TriageResult, preprocessed: PreprocessedInciden
     )
 
     request_id = preprocessed.request_id or "unknown"
+    log_phase_start("llm_summarize", component="ticketing", request_id=request_id)
+    started_at = perf_counter()
     try:
         messages = [ChatMessage(role="user", content=prompt)]
         response = await asyncio.to_thread(llm.chat, messages)
         text = response.message.content or ""
         result = {}
         for line in text.splitlines():
-            for key in ("TITLE", "SUMMARY", "ROOT_CAUSE", "IMPACT", "ACTION"):
+            for key in ("TITLE", "SUMMARY", "ROOT_CAUSE", "IMPACT", "ACTION", "BUSINESS_RISK"):
                 if line.startswith(f"{key}:"):
                     result[key] = line[len(key) + 1:].strip()
                     break
@@ -75,8 +105,22 @@ async def _llm_summarize(triage: TriageResult, preprocessed: PreprocessedInciden
                 if result:
                     last_key = list(result)[-1]
                     result[last_key] += "\n" + line
+        latency_ms = int((perf_counter() - started_at) * 1000)
+        log_phase_success(
+            "llm_summarize",
+            latency_ms=latency_ms,
+            sections=list(result.keys()),
+            request_id=request_id,
+        )
         return result
     except Exception as exc:
+        latency_ms = int((perf_counter() - started_at) * 1000)
+        log_phase_failure(
+            "llm_summarize",
+            error_type=type(exc).__name__,
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
         logger.warning("ticket_llm_summarize_failed", request_id=request_id, error=str(exc))
         return {}
 
@@ -98,6 +142,55 @@ def _build_ticket_title(triage: TriageResult, llm_summary: dict[str, str] | None
     return f"[{severity}] {incident_type}: {first_sentence}"
 
 
+def _metadata_lines(
+    severity: str,
+    incident_type: str,
+    preprocessed: Optional[PreprocessedIncident],
+) -> list[str]:
+    lines = [f"*Severity:* {severity}", f"*Incident Type:* {incident_type}"]
+    if preprocessed and preprocessed.request_id:
+        lines.append(f"*Request ID:* {preprocessed.request_id}")
+    return lines
+
+
+def _description_from_llm(
+    triage: TriageResult,
+    preprocessed: Optional[PreprocessedIncident],
+    llm_summary: dict[str, str],
+    severity: str,
+    incident_type: str,
+) -> list[str]:
+    lines = ["h2. Incident Summary", llm_summary["SUMMARY"], ""]
+    lines += _metadata_lines(severity, incident_type, preprocessed)
+    for section_key, heading in (
+        ("ROOT_CAUSE", "Root Cause"),
+        ("IMPACT", "Impact"),
+        ("ACTION", "Recommended Actions"),
+        ("BUSINESS_RISK", "Business Risk"),
+    ):
+        if llm_summary.get(section_key):
+            lines += ["", f"h2. {heading}", llm_summary[section_key]]
+    lines += ["", "h2. Business Impact Detail", triage.business_impact_summary]
+    return lines
+
+
+def _description_fallback(
+    triage: TriageResult,
+    preprocessed: Optional[PreprocessedIncident],
+    severity: str,
+    incident_type: str,
+) -> list[str]:
+    lines = ["h2. Incident Summary", triage.technical_summary, ""]
+    lines += _metadata_lines(severity, incident_type, preprocessed)
+    lines += ["", "h2. Business Impact", triage.business_impact_summary]
+    if triage.tool_results:
+        lines += ["", "h2. Tool Findings"]
+        for result in triage.tool_results:
+            hint = f" (severity hint: {result.severity_hint.value})" if result.severity_hint else ""
+            lines.append(f"*{result.tool_name}*{hint}: {result.findings}")
+    return lines
+
+
 def _build_ticket_description(
     triage: TriageResult,
     preprocessed: Optional[PreprocessedIncident] = None,
@@ -108,47 +201,12 @@ def _build_ticket_description(
     incident_type = triage.classification.incident_type.value.replace("_", " ").title()
 
     if llm_summary and llm_summary.get("SUMMARY"):
-        lines = [
-            "h2. Incident Summary",
-            llm_summary.get("SUMMARY", ""),
-            "",
-            f"*Severity:* {severity}",
-            f"*Incident Type:* {incident_type}",
-        ]
-        if preprocessed and preprocessed.request_id:
-            lines.append(f"*Request ID:* {preprocessed.request_id}")
-        if llm_summary.get("ROOT_CAUSE"):
-            lines += ["", "h2. Root Cause", llm_summary["ROOT_CAUSE"]]
-        if llm_summary.get("IMPACT"):
-            lines += ["", "h2. Impact", llm_summary["IMPACT"]]
-        if llm_summary.get("ACTION"):
-            lines += ["", "h2. Recommended Actions", llm_summary["ACTION"]]
-        lines += ["", "h2. Business Impact", triage.business_impact_summary]
+        lines = _description_from_llm(triage, preprocessed, llm_summary, severity, incident_type)
     else:
-        # Fallback: raw triage data
-        lines = [
-            "h2. Incident Summary",
-            triage.technical_summary,
-            "",
-            f"*Severity:* {severity}",
-            f"*Incident Type:* {incident_type}",
-        ]
-        if preprocessed and preprocessed.request_id:
-            lines.append(f"*Request ID:* {preprocessed.request_id}")
-        lines += [
-            "",
-            "h2. Business Impact",
-            triage.business_impact_summary,
-        ]
-        if triage.tool_results:
-            lines += ["", "h2. Tool Findings"]
-            for result in triage.tool_results:
-                hint = f" (severity hint: {result.severity_hint.value})" if result.severity_hint else ""
-                lines.append(f"*{result.tool_name}*{hint}: {result.findings}")
+        lines = _description_fallback(triage, preprocessed, severity, incident_type)
 
     if triage.classification.historical_rca:
         lines += ["", "h2. Historical RCA", triage.classification.historical_rca]
-
     if preprocessed:
         lines += ["", "h2. Original Report", preprocessed.original.text_desc]
 
@@ -176,12 +234,34 @@ async def _create_new_ticket(
     description = _build_ticket_description(triage, preprocessed, llm_summary)
 
     if preprocessed and _jira_ticketing_enabled():
+        log_phase_start("jira_create_ticket", component="ticketing", request_id=request_id)
+        jira_started_at = perf_counter()
         jira_bridge = _load_jira_bridge()
-        jira_ticket = await asyncio.to_thread(
-            jira_bridge.create_ticket,
-            preprocessed,
-            triage,
-            request_id,
+        try:
+            jira_ticket = await asyncio.to_thread(
+                jira_bridge.create_ticket,
+                preprocessed,
+                triage,
+                request_id,
+                llm_title=title,
+                llm_description=description,
+            )
+        except Exception as exc:
+            jira_latency_ms = int((perf_counter() - jira_started_at) * 1000)
+            log_phase_failure(
+                "jira_create_ticket",
+                error_type=type(exc).__name__,
+                latency_ms=jira_latency_ms,
+                request_id=request_id,
+            )
+            raise
+        jira_latency_ms = int((perf_counter() - jira_started_at) * 1000)
+        log_phase_success(
+            "jira_create_ticket",
+            latency_ms=jira_latency_ms,
+            ticket_id=jira_ticket.ticket_id,
+            provider="jira",
+            request_id=request_id,
         )
         logger.info(
             "ticket_created",
@@ -277,7 +357,7 @@ def _jira_ticketing_enabled() -> bool:
 
 
 def _jira_polling_enabled() -> bool:
-    value = os.getenv("POLL_JIRA_TICKETS", "false").strip().lower()
+    value = os.getenv("POLL_JIRA_TICKETS", "true").strip().lower()
     return value in {"1", "true", "yes", "on"}
 
 

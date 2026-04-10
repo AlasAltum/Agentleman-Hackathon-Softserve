@@ -139,7 +139,7 @@ class SREIncidentWorkflow(Workflow):
             triage = _consolidate_triage(preprocessed, classification, accumulated_results)
             return TriageCompleteEvent(preprocessed=preprocessed, triage=triage)
 
-        selected_tools = _select_tools(preprocessed, classification, accumulated_results)
+        selected_tools = await _select_tools(preprocessed, classification, accumulated_results)
 
         if not selected_tools:
             logger.info("no_tools_to_dispatch", phase="router", request_id=request_id)

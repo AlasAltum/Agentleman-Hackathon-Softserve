@@ -37,7 +37,7 @@ async def _run_workflow_in_background(preprocessed: PreprocessedIncident, reques
     except Exception as exc:
         logger.error("triage_error", request_id=request_id, error_type=type(exc).__name__, exc_info=True)
 _REPORTER_EMAIL_RE = re.compile(
-    r"reporter email:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
+    r"reporter(?:\s+email)?:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
     re.IGNORECASE,
 )
 _REQUEST_ID_RE = re.compile(r"request id:\s*([A-Z0-9._:-]+)", re.IGNORECASE)
@@ -143,7 +143,12 @@ async def on_ticket_resolved(payload: dict[str, Any]):
     issue_key = _extract_issue_key(payload)
     ignore_reason = _jira_resolution_ignore_reason(payload)
     if ignore_reason is not None:
-        # Ignore non-resolution and non-human Jira updates so only manual task resolution fans out downstream work.
+        logger.info(
+            "jira_webhook_ignored",
+            ticket_id=issue_key,
+            reason=ignore_reason,
+            webhook_event=payload.get("webhookEvent"),
+        )
         return {
             "status": "ignored",
             "reason": ignore_reason,
@@ -151,11 +156,32 @@ async def on_ticket_resolved(payload: dict[str, Any]):
         }
 
     resolution_payload = _build_resolution_payload(payload)
-    # The webhook arrives after Jira already resolved the issue, so we only trigger the local post-resolution flow here.
-    handle_resolution(resolution_payload)
+    request_id = resolution_payload.request_id or "unknown"
+
+    bind_request_context(request_id, phase="resolution", component="webhook")
+    status_change = _extract_status_change(payload) or {}
+    logger.info(
+        "jira_webhook_received",
+        ticket_id=resolution_payload.ticket_id,
+        resolved_by=resolution_payload.resolved_by,
+        reporter_email=resolution_payload.reporter_email or "unknown",
+        request_id=request_id,
+        from_status=status_change.get("fromString", "unknown"),
+        to_status=status_change.get("toString", "unknown"),
+        webhook_event=payload.get("webhookEvent"),
+    )
+
+    await handle_resolution(resolution_payload)
     dispatch_notifications(
-        request_id=resolution_payload.request_id or "unknown",
+        request_id=request_id,
         resolution_payload=resolution_payload,
+    )
+
+    logger.info(
+        "jira_resolution_complete",
+        ticket_id=resolution_payload.ticket_id,
+        request_id=request_id,
+        reporter_notified=bool(resolution_payload.reporter_email),
     )
     return {"status": "resolution_processed", "ticket_id": resolution_payload.ticket_id}
 
