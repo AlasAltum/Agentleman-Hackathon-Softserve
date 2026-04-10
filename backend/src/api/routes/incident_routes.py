@@ -37,7 +37,7 @@ async def _run_workflow_in_background(preprocessed: PreprocessedIncident, reques
     except Exception as exc:
         logger.error("triage_error", request_id=request_id, error_type=type(exc).__name__, exc_info=True)
 _REPORTER_EMAIL_RE = re.compile(
-    r"reporter email:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
+    r"reporter(?:\s+email)?:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
     re.IGNORECASE,
 )
 _REQUEST_ID_RE = re.compile(r"request id:\s*([A-Z0-9._:-]+)", re.IGNORECASE)

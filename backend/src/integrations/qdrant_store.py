@@ -115,16 +115,24 @@ async def store_incident(
     Called from the resolution phase after a Jira ticket is closed.
     Silently no-ops when Qdrant is unavailable.
     """
-    index = get_qdrant_index()
-    if index is None:
-        return
-
     try:
+        from qdrant_client import AsyncQdrantClient
+        from llama_index.vector_stores.qdrant import QdrantVectorStore
         from llama_index.core.schema import TextNode
+        from src.utils.setup import get_settings
 
+        embed_model = get_settings()["embed_model"]
+
+        aclient = AsyncQdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+        vector_store = QdrantVectorStore(
+            aclient=aclient,
+            collection_name=QDRANT_COLLECTION,
+        )
+        import uuid
+        node_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, incident_id))
         node = TextNode(
             text=text,
-            id_=incident_id,
+            id_=node_id,
             metadata={
                 "incident_id": incident_id,
                 "summary": summary,
@@ -132,7 +140,9 @@ async def store_incident(
                 "timestamp": timestamp,
             },
         )
-        index.insert_nodes([node])
+        node.embedding = await embed_model.aget_text_embedding(text)
+        await vector_store.async_add([node])
+
         logger.info(
             "qdrant_incident_stored",
             phase="resolve",
@@ -148,4 +158,5 @@ async def store_incident(
             status="error",
             error_type=type(exc).__name__,
             incident_id=incident_id,
+            error=str(exc),
         )
