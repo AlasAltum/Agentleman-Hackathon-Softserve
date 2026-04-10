@@ -6,7 +6,7 @@ Get the **SRE Incident Intake & Triage Agent** running locally in 5 minutes—a 
 
 - **Docker & Docker Compose** (version 20.10+)
 - **Git**
-- **API Key** for at least one LLM provider (see options below)
+- **API Key** for Google AI. Set the Google API key as an environment variable.
 
 > **No local setup needed!** All services run in Docker containers.
 
@@ -15,7 +15,7 @@ Get the **SRE Incident Intake & Triage Agent** running locally in 5 minutes—a 
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/softserve/Agentleman-Hackathon-Softserve.git
+git clone git@github.com:AlasAltum/Agentleman-Hackathon-Softserve.git
 cd Agentleman-Hackathon-Softserve
 ```
 
@@ -33,45 +33,25 @@ Open `.env` and fill in the **required** API keys below:
 
 ### Essential Configuration
 
-#### LLM Provider (Choose One)
+These are the only values you **must** set — everything else has a working default:
 
-Choose your preferred LLM provider and API key:
-
-**Google Gemini (Default - Recommended)**
 ```env
-LLM_PROVIDER=google
-LLM_MODEL=gemini-2.5-flash
+# Local PostgreSQL password (choose any password)
+POSTGRES_PASSWORD=your_password_here
+
+# Google AI Studio — https://aistudio.google.com/apikey
 GOOGLE_API_KEY=your_google_api_key_here
-EMBED_PROVIDER=google
-EMBED_MODEL=gemini-embedding-2-preview
-```
 
-
-**Local Ollama (Free - Requires Ollama Installation)**
-```env
-LLM_PROVIDER=ollama
-LLM_MODEL=llama2
-LLM_BASE_URL=http://host.docker.internal:11434
-EMBED_PROVIDER=local
-EMBED_MODEL=nomic-embed-text
-```
-
-#### Optional: Jira/Confluence Integration
-```env
+# Atlassian — https://id.atlassian.com/manage-profile/security/api-tokens
 ATLASSIAN_EMAIL=your_jira_email@example.com
 ATLASSIAN_API_TOKEN=your_jira_api_token
-JIRA_BASE_URL=https://your-domain.atlassian.net
-```
 
-#### Optional: Nylas Email Notifications
-```env
+# Nylas — https://www.nylas.com/ (API keys → your app → Grants)
 NYLAS_API_KEY=your_nylas_api_key
 NYLAS_GRANT_ID=your_nylas_grant_id
-NYLAS_EMAIL_ADDRESS=alerts@example.com
-NYLAS_TEAM_EMAIL_RECIPIENTS=sre-team@example.com
 ```
 
-> ℹ️ Other settings have sensible defaults and can be left as-is for local development.
+> ℹ️ All other settings (LLM model, Jira URL, email addresses, ports, etc.) have sensible defaults and can be left as-is for local development.
 
 ---
 
@@ -111,13 +91,9 @@ curl http://localhost:8000/health
 
 Ingest an incident via the backend API:
 ```bash
-curl -X POST http://localhost:8000/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Database Connection Timeout",
-    "description": "Production database experiencing connection timeouts",
-    "severity": "high"
-  }'
+curl -X POST http://localhost:8000/api/ingest \
+  -F "text_desc=The api-gateway service has been experiencing severe performance degradation since 14:10 UTC. CPU usage spiked from 40% to 95% and p99 latency jumped from 45ms to 3200ms. Memory utilization is at 91% and timeout errors have increased from 0.1% to 12% of all requests. No recent deploys were made. Upstream services (auth, catalog) appear healthy. Alert triggered: 'SRE-ALERT: api-gateway p99 > 2000ms for 5 consecutive minutes'. Checkout and payment flows are severely impacted." \
+  -F "reporter_email=client@company.com"
 ```
 
 ### E-commerce Storefront
@@ -129,26 +105,6 @@ Visit http://localhost:8001 to see the storefront (initially empty until seeded)
 Access Grafana at http://localhost:3000:
 - **Username:** admin
 - **Password:** admin
-
----
-
-## Step 5: Run Tests
-
-### Backend Unit & Integration Tests
-
-```bash
-docker compose exec hackaton-backend pytest tests/ -v
-```
-
-### Specific Test Suite
-
-```bash
-# Test workflow
-docker compose exec hackaton-backend pytest tests/test_sre_workflow.py -v
-
-# Test integrations
-docker compose exec hackaton-backend pytest tests/test_ingest_integration.py -v
-```
 
 ---
 
@@ -168,26 +124,15 @@ docker compose down -v
 
 ### View Logs
 
-**All services:**
-```bash
-docker compose logs -f
-```
-
 **Specific service:**
 ```bash
-docker compose logs -f hackaton-backend
+docker logs hackaton-backend
 ```
 
 ### Access Database
 
 ```bash
 docker compose exec db psql -U postgres -d postgres
-```
-
-### Rebuild a Specific Service
-
-```bash
-docker compose up --build hackaton-backend
 ```
 
 ---
@@ -205,9 +150,6 @@ Check logs:
 ```bash
 docker compose logs hackaton-backend
 ```
-
-### "Invalid API Key" Error
-Verify your API key in `.env` matches your chosen LLM provider (Google, OpenRouter, etc.).
 
 ### Database Connection Errors
 Ensure PostgreSQL is healthy:
@@ -229,12 +171,3 @@ docker compose restart hackaton-qdrant
 - **Understand Architecture:** See [README.md](README.md) for architecture overview
 - **Scale in Production:** See [SCALING.md](SCALING.md) for deployment guidelines
 - **API Documentation:** Check backend logs for OpenAPI docs at http://localhost:8000/docs
-
----
-
-## Need Help?
-
-- Check the main [README.md](README.md)
-- Review [backend/README.md](backend/README.md)
-- Check service logs: `docker compose logs SERVICE_NAME`
-- Verify `.env` configuration matches your chosen LLM provider
