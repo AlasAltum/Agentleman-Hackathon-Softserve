@@ -58,9 +58,12 @@ def seed_data(storage_context):
         print(f"❌ Error: Failed to decode JSON from {file_path}.")
         return None
 
-    documents = []
+    # Insert one document at a time to avoid silent batch failures from the
+    # Gemini embedding API returning partial results (causes KeyError in LlamaIndex).
+    index = None
+    seeded = 0
+    failed = 0
     for item in incident_data:
-        # LlamaIndex wraps data into Document objects
         doc = Document(
             text=item["description"],
             doc_id=item["id"],
@@ -68,16 +71,22 @@ def seed_data(storage_context):
                 "incident_id": item["id"],
                 "summary": item["description"],
                 "resolution": item.get("resolution", ""),
-                "timestamp": "2026-04-08T10:00:00Z"
-            }
-        )
-        documents.append(doc)
+                "timestamp": "2026-04-08T10:00:00Z",
+            },
+        )   
+        try:
+            if index is None:
+                index = VectorStoreIndex.from_documents(
+                    [doc], storage_context=storage_context
+                )
+            else:
+                index.insert(doc)
+            seeded += 1
+        except Exception as exc:
+            failed += 1
+            print(f"⚠️  Skipping incident {item['id']}: {exc}")
 
-    # This one line handles embedding AND upserting to Qdrant
-    index = VectorStoreIndex.from_documents(
-        documents, storage_context=storage_context
-    )
-    print(f"✅ Seeded {len(documents)} incidents into LlamaIndex.")
+    print(f"✅ Seeded {seeded}/{len(incident_data)} incidents into Qdrant ({failed} skipped).")
     return index
 
 def verify_seeded_data(index, query_text="DNS failure"):
