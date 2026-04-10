@@ -206,6 +206,8 @@ curl -X POST http://localhost:8000/api/ingest \
 
 ![alt text](docs/grafana_2.png)
 
+![alt text](docs/grafana_3.jpeg)
+
 ---
 
 ## Integrations
