@@ -109,6 +109,7 @@
               "mode": "off"
             }
           },
+          "fieldMinMax": true,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -128,7 +129,7 @@
           {
             "matcher": {
               "id": "byFrameRefID",
-              "options": "A"
+              "options": "TotalRequests"
             },
             "properties": [
               {
@@ -137,13 +138,17 @@
                   "fixedColor": "dark-blue",
                   "mode": "fixed"
                 }
+              },
+              {
+                "id": "displayName",
+                "value": "Total requests"
               }
             ]
           },
           {
             "matcher": {
               "id": "byFrameRefID",
-              "options": "B"
+              "options": "RejectedRequests"
             },
             "properties": [
               {
@@ -152,13 +157,17 @@
                   "fixedColor": "dark-red",
                   "mode": "fixed"
                 }
+              },
+              {
+                "id": "displayName",
+                "value": "Rejected requests"
               }
             ]
           },
           {
             "matcher": {
               "id": "byFrameRefID",
-              "options": "C"
+              "options": "ApprovedRequests"
             },
             "properties": [
               {
@@ -167,6 +176,10 @@
                   "fixedColor": "dark-green",
                   "mode": "fixed"
                 }
+              },
+              {
+                "id": "displayName",
+                "value": "Accepted Requests"
               }
             ]
           }
@@ -179,12 +192,13 @@
         "y": 7
       },
       "id": 2,
+      "interval": "1m",
       "options": {
         "legend": {
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": false
+          "showLegend": true
         },
         "tooltip": {
           "hideZeros": false,
@@ -201,7 +215,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "count_over_time(\r\n    {service_name=\"app\"} \r\n    | json\r\n    | event = \"ingest_started\"\r\n\r\n    [$__auto])\r\n# {\"text_desc_length\": 13, \"num_attachments\": 0, \"event\": \"ingest_started\", \"phase\": \"ingest\", \"component\": \"api\", \"request_id\": \"069d82a7-e745-725a-8000-ad4cc130df8d\", \"service\": \"backend\", \"level\": \"info\", \"timestamp\": \"2026-04-09T22:38:54.455952Z\"}\r\n",
+          "expr": "sum(\r\n  count_over_time(\r\n    {service_name=\"app\"}\r\n    | json\r\n    | phase = \"guardrails\"\r\n    [$__auto]\r\n  )\r\n)",
           "queryType": "range",
           "refId": "TotalRequests"
         },
@@ -212,7 +226,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "count_over_time(\r\n    {service_name=\"app\"} \r\n    | json\r\n    | event = \"relevance_check_rejected\"\r\n\r\n    [$__auto])\r\n# {\"text_desc_length\": 13, \"num_attachments\": 0, \"event\": \"ingest_started\", \"phase\": \"ingest\", \"component\": \"api\", \"request_id\": \"069d82a7-e745-725a-8000-ad4cc130df8d\", \"service\": \"backend\", \"level\": \"info\", \"timestamp\": \"2026-04-09T22:38:54.455952Z\"}\r\n\r\n\r\n# {\"reason\": \"not_sre_incident\", \"event\": \"relevance_check_rejected\", \"phase\": \"ingest\", \"component\": \"api\", \"request_id\": \"069d8301-9b69-7880-8000-3b597e7109f0\", \"service\": \"backend\", \"level\": \"warning\", \"timestamp\": \"2026-04-09T23:02:53.669062Z\"} \r\n",
+          "expr": "sum(count_over_time(\r\n    {service_name=\"app\"} \r\n    | json\r\n    | phase = \"guardrails\"\r\n    | status = \"error\"\r\n    [$__auto])\r\n    )\r\n# {\"phase\": \"guardrails\", \"status\": \"success\", \"component\": \"GuardrailsEngine\", \"latency_ms\": 0, \"event\": \"phase_completed\", \"service\": \"backend\", \"request_id\": \"batch-safe-sre-037-037-23beabf9\", \"level\": \"info\", \"timestamp\": \"2026-04-10T00:58:10.703128Z\"} \r\n",
           "queryType": "range",
           "refId": "RejectedRequests"
         },
@@ -223,7 +237,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "count_over_time(\r\n    {service_name=\"app\"} \r\n    | json\r\n    | event = \"relevance_check_passed\"\r\n    [$__auto])\r\n# {\"event\": \"relevance_check_passed\", \"phase\": \"ingest\", \"component\": \"api\", \"request_id\": \"069d830d-6e3f-7831-8000-d67c31819ef1\", \"service\": \"backend\", \"level\": \"info\", \"timestamp\": \"2026-04-09T23:06:01.975852Z\"}",
+          "expr": "sum(count_over_time(\r\n    {service_name=\"app\"} \r\n    | json\r\n    | phase = \"guardrails\"\r\n    | status = \"success\"\r\n    [$__auto]))\r\n# {\"phase\": \"guardrails\", \"status\": \"success\", \"component\": \"GuardrailsEngine\", \"latency_ms\": 0, \"event\": \"phase_completed\", \"service\": \"backend\", \"request_id\": \"batch-safe-sre-037-037-23beabf9\", \"level\": \"info\", \"timestamp\": \"2026-04-10T00:58:10.703128Z\"} \r\n",
           "queryType": "range",
           "refId": "ApprovedRequests"
         }
@@ -299,6 +313,7 @@
         "y": 15
       },
       "id": 4,
+      "interval": "5s",
       "options": {
         "legend": {
           "calcs": [],
@@ -373,6 +388,106 @@
       ],
       "title": "Logs",
       "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "These are the logs from the Agentic stack",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 5,
+      "interval": "30s",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "sum by (tool, status) (\r\n  count_over_time(\r\n    {service_name=\"app\"}\r\n    | json\r\n    | event=\"tool_execution\"\r\n    [$__auto]\r\n  )\r\n)\r\n# 2026-04-09 20:58:00.148 \r\n# info \r\n# {\"tool\": \"business_impact\", \"status\": \"complete\", \"affected_function\": \"default\", \"total_loss_usd\": 1641.38, \"cis_score\": 63.9, \"severity_hint\": \"high\", \"event\": \"tool_execution\", \"level\": \"info\", \"timestamp\": \"2026-04-10T00:58:00.148401Z\"} \r\n\r\n# 2026-04-09 20:58:00.148 \r\n# info \r\n# {\"tool\": \"business_impact\", \"status\": \"running\", \"event\": \"tool_execution\", \"level\": \"info\", \"timestamp\": \"2026-04-10T00:58:00.148208Z\"} \r\n\r\n# 2026-04-09 20:58:00.148 \r\n# info \r\n# {\"tool\": \"telemetry_analyzer\", \"status\": \"complete\", \"dataset\": \"api-gateway\", \"anomaly_count\": 5, \"severity_hint\": \"critical\", \"event\": \"tool_execution\", \"level\": \"info\", \"timestamp\": \"2026-04-10T00:58:00.147913Z\"} \r\n\r\n# 2026-04-09 20:58:00.147 \r\n# info \r\n# {\"tool\": \"telemetry_analyzer\", \"status\": \"running\", \"event\": \"tool_execution\", \"level\": \"info\", \"timestamp\": \"2026-04-10T00:58:00.147617Z\"} \r\n\r\n# 2026-04-09 20:57:57.237 \r\n# info \r\n# {\"tool\": \"business_impact\", \"status\": \"complete\", \"affected_function\": \"default\", \"total_loss_usd\": 1641.38, \"cis_score\": 63.9, \"severity_hint\": \"high\", \"event\": \"tool_execution\", \"level\": \"info\", \"timestamp\": \"2026-04-10T00:57:57.236880Z\"} ",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Tool calls by status",
+      "type": "timeseries"
     }
   ],
   "preload": false,
@@ -406,8 +521,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "New dashboard",
+  "title": "SRE Agent system observability",
   "uid": "adp7cwz",
-  "version": 14,
+  "version": 16,
   "weekStart": ""
 }
