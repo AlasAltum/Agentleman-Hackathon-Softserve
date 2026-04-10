@@ -40,7 +40,7 @@ This is a single-agent architecture with one orchestrating agent and several int
 - **Context sources:** User text, extracted file content, historical incidents from Qdrant, tool outputs, and the e-commerce codebase when the incident suggests a code or regression issue.
 - **Context strategy:** Preprocess and consolidate attachments first, then use retrieval plus reranking before classification and tool dispatch.
 - **Token management:** Inputs are trimmed and summarized before LLM use; tool findings and prompt inputs are capped to keep prompts bounded.
-- **Grounding:** The workflow grounds outputs in retrieved incidents, validated attachments, tool results, and the original incident report. Jira ticket content is based on the reported incident data rather than free-form agent narrative.
+- **Grounding:** The workflow grounds outputs in retrieved incidents, validated attachments, tool results, and the original incident report.
 
 ---
 
