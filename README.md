@@ -101,10 +101,9 @@ curl -X POST http://localhost:8000/api/ingest \
   -F "reporter_email=test@example.com"
 
 # Check workflow execution
-docker compose logs hackaton-backend | grep -A 20 "ingest_started"
+docker logs hackaton-backend | grep -A 20 "ingest_started"
 
 # Check observability
-curl http://localhost:9090/api/v1/query?query=incidents_ingested_total
 open http://localhost:5001  # MLflow traces
 open http://localhost:3000  # Grafana dashboards (admin/admin)
 ```
@@ -187,6 +186,19 @@ curl -X POST http://localhost:8000/api/ingest \
   -F "file_attachments=@error.log" \
   -F "file_attachments=@screenshot.png"
 ```
+---
+
+## Observability
+
+
+**View from MLFlow** 
+![alt text](docs/mlflow_1.png)
+
+
+![alt text](docs/mlflow_2.png)
+
+
+![alt text](docs/mlflow_3.png)
 
 ---
 
